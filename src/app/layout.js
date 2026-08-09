@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Link-djuzee",
+  title: "project djuzee",
 };
 
 export default function RootLayout({ children }) {
