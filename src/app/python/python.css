@@ -638,6 +638,9 @@
   grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 0;
+  /* .py-main is a stacking context (z-index: 1), so the panel's own z-index
+     is scoped to it — lift the whole thing above the sticky header */
+  z-index: 70;
 }
 .py-root.expanded .viz-panel {
   position: fixed;
@@ -648,7 +651,10 @@
   background: var(--bg-base);
   box-shadow: none;
 }
-.py-root.expanded .panel-header { border-radius: 0; }
+.py-root.expanded .panel-header {
+  border-radius: 0;
+  background: var(--bg-elevated); /* opaque: nothing behind may show through */
+}
 .py-root.expanded .viz-body {
   flex: 1;
   max-height: none;
