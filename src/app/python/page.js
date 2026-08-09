@@ -3,114 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./python.css";
 
-// Stable, module-scoped editor to avoid remounting on each render
-function EditorWithGutter({ code, setCode, codeLines, editorWrap, editorFont, editorSize, onResize }) {
-  const taRef = useRef(null);
-  const gutRef = useRef(null);
-  const shellRef = useRef(null);
-  const dragStateRef = useRef(null);
-  const [dragging, setDragging] = useState(null);
-  useEffect(() => {
-    const ta = taRef.current;
-    const g = gutRef.current;
-    if (!ta || !g) return;
-    const onScroll = () => { g.scrollTop = ta.scrollTop; };
-    ta.addEventListener('scroll', onScroll);
-    return () => ta.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!onResize) return;
-    if (!shellRef.current) return;
-    if (editorSize && editorSize.width && editorSize.height) return;
-    const rect = shellRef.current.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    onResize({ width: Math.max(320, Math.round(rect.width)), height: Math.max(260, Math.round(rect.height)) });
-  }, [editorSize, onResize]);
-
-  const digits = String(codeLines.length).length;
-  const approxDigitPx = Math.max(8, Math.round(editorFont * 0.6));
-  const gutterWidth = Math.max(3, digits + 1) * approxDigitPx; // px
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e) => {
-      const state = dragStateRef.current;
-      if (!state || !onResize) return;
-      const { dir, startX, startY, startWidth, startHeight } = state;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      let width = startWidth;
-      let height = startHeight;
-      if (dir.includes('e')) width = Math.max(320, startWidth + dx);
-      if (dir.includes('s')) height = Math.max(260, startHeight + dy);
-      if (dir.includes('w')) width = Math.max(320, startWidth - dx);
-      if (dir.includes('n')) height = Math.max(260, startHeight - dy);
-      onResize({ width: Math.round(width), height: Math.round(height) });
-    };
-    const onUp = () => {
-      dragStateRef.current = null;
-      setDragging(null);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-  }, [dragging, onResize]);
-
-  const beginResize = (dir) => (e) => {
-    if (!shellRef.current) return;
-    e.preventDefault();
-    dragStateRef.current = {
-      dir,
-      startX: e.clientX,
-      startY: e.clientY,
-      startWidth: shellRef.current.offsetWidth || 0,
-      startHeight: shellRef.current.offsetHeight || 0,
-    };
-    setDragging(dir);
-  };
-
-  const shellStyle = { fontSize: `${editorFont}px` };
-  if (editorSize && editorSize.width) shellStyle.width = editorSize.width;
-  if (editorSize && editorSize.height) shellStyle.height = editorSize.height;
-  return (
-    <div className="editor-shell" ref={shellRef} style={shellStyle} data-dragging={dragging ? dragging : undefined}>
-      <div className="editor-resize-handle handle-n" onPointerDown={beginResize('n')} />
-      <div className="editor-resize-handle handle-s" onPointerDown={beginResize('s')} />
-      <div className="editor-resize-handle handle-e" onPointerDown={beginResize('e')} />
-      <div className="editor-resize-handle handle-w" onPointerDown={beginResize('w')} />
-      <div className="editor-resize-handle handle-ne" onPointerDown={beginResize('ne')} />
-      <div className="editor-resize-handle handle-nw" onPointerDown={beginResize('nw')} />
-      <div className="editor-resize-handle handle-se" onPointerDown={beginResize('se')} />
-      <div className="editor-resize-handle handle-sw" onPointerDown={beginResize('sw')} />
-      <div
-        className="editor-gutter"
-        ref={gutRef}
-        style={{ width: `${gutterWidth}px` }}
-        aria-hidden
-      >
-        {codeLines.map((_, i) => (
-          <div key={i} className="gut-line">{i + 1}</div>
-        ))}
-      </div>
-      <textarea
-        ref={taRef}
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        spellCheck={false}
-        className={`editor ${editorWrap ? 'wrap' : ''}`}
-        aria-label="Python code editor"
-      />
-    </div>
-  );
-}
-
-export default function PythonVisualizerPage() {
-  const [pyodide, setPyodide] = useState(null);
-  const [loadingPyodide, setLoadingPyodide] = useState(true);
-  const [code, setCode] = useState(`def fib(n):
+const DEFAULT_CODE = `def fib(n):
     a, b = 0, 1
     seq = []
     for _ in range(n):
@@ -122,197 +15,366 @@ nums = fib(6)
 print("fib:", nums)
 total = sum(nums)
 print("total:", total)
-`);
-  const [events, setEvents] = useState([]);
-  const [current, setCurrent] = useState(0);
+`;
+
+const EXAMPLES = [
+  {
+    id: "fib",
+    label: "Fibonacci",
+    code: DEFAULT_CODE,
+  },
+  {
+    id: "loop",
+    label: "Loop & condition",
+    code: `total = 0
+for i in range(1, 11):
+    if i % 2 == 0:
+        total += i
+        print("even:", i, "->", total)
+    else:
+        print("odd:", i)
+
+print("total =", total)
+`,
+  },
+  {
+    id: "list",
+    label: "List & slicing",
+    code: `nums = [5, 3, 8, 1, 9, 2]
+nums.sort()
+print(nums)
+
+top3 = nums[-3:]
+print("top3:", top3)
+
+squares = [n * n for n in nums]
+print("squares:", squares)
+`,
+  },
+  {
+    id: "dict",
+    label: "Dictionary",
+    code: `scores = {"ann": 82, "bob": 91, "cat": 74}
+scores["dan"] = 68
+
+for name, score in scores.items():
+    grade = "A" if score >= 90 else "B" if score >= 80 else "C"
+    print(name, score, grade)
+
+best = max(scores, key=scores.get)
+print("best:", best)
+`,
+  },
+  {
+    id: "recursion",
+    label: "Recursion",
+    code: `def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+print(factorial(5))
+`,
+  },
+  {
+    id: "class",
+    label: "Class & object",
+    code: `class Counter:
+    def __init__(self, start=0):
+        self.value = start
+        self.history = []
+
+    def add(self, n):
+        self.value += n
+        self.history.append(n)
+        return self.value
+
+c = Counter(10)
+c.add(5)
+c.add(-3)
+print(c.value, c.history)
+`,
+  },
+  {
+    id: "input",
+    label: "Read input()",
+    code: `name = input("What is your name? ")
+print("Hello,", name)
+`,
+  },
+];
+
+const STORAGE_KEY = "py-visualizer-state";
+const DEFAULT_EDITOR_WIDTH = 440;
+const MIN_EDITOR_WIDTH = 320;
+
+/* ---------------------------------------------------------------
+   Editor: textarea + line-number gutter that stays aligned even
+   when soft-wrap is on (heights are measured from a hidden mirror).
+   --------------------------------------------------------------- */
+function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun }) {
+  const taRef = useRef(null);
+  const gutRef = useRef(null);
+  const mirrorRef = useRef(null);
+  const shellRef = useRef(null);
+  const pendingSelRef = useRef(null);
+  const [lineHeights, setLineHeights] = useState([]);
+
+  const lines = useMemo(() => code.split("\n"), [code]);
+  const digits = String(lines.length).length;
+  const gutterWidth = Math.max(3, digits + 1) * Math.max(8, Math.round(editorFont * 0.62));
+
+  // keep gutter scrolled with the textarea
+  useEffect(() => {
+    const ta = taRef.current;
+    const g = gutRef.current;
+    if (!ta || !g) return;
+    const onScroll = () => { g.scrollTop = ta.scrollTop; };
+    ta.addEventListener("scroll", onScroll, { passive: true });
+    return () => ta.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // measure real (wrapped) height of every line
+  const measure = useCallback(() => {
+    const ta = taRef.current;
+    const m = mirrorRef.current;
+    if (!ta || !m) return;
+    if (!editorWrap) {
+      setLineHeights((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    m.style.width = `${ta.clientWidth}px`;
+    const next = Array.from(m.children, (el) => el.offsetHeight);
+    setLineHeights((prev) =>
+      prev.length === next.length && prev.every((h, i) => h === next[i]) ? prev : next
+    );
+  }, [editorWrap]);
+
+  useEffect(() => { measure(); }, [measure, code, editorFont]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    if (shellRef.current) ro.observe(shellRef.current);
+    return () => ro.disconnect();
+  }, [measure]);
+
+  // restore caret after a programmatic edit (tab / enter / backspace)
+  useEffect(() => {
+    const ta = taRef.current;
+    const sel = pendingSelRef.current;
+    if (!ta || !sel) return;
+    pendingSelRef.current = null;
+    ta.selectionStart = sel[0];
+    ta.selectionEnd = sel[1];
+  }, [code]);
+
+  const applyEdit = (nextValue, selStart, selEnd) => {
+    pendingSelRef.current = [selStart, selEnd];
+    setCode(nextValue);
+  };
+
+  const handleKeyDown = (e) => {
+    const ta = e.currentTarget;
+    const { selectionStart: start, selectionEnd: end, value } = ta;
+
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      onRun?.();
+      return;
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const multiline = value.slice(start, end).includes("\n");
+
+      if (!e.shiftKey && !multiline) {
+        const next = `${value.slice(0, start)}    ${value.slice(end)}`;
+        applyEdit(next, start + 4, start + 4);
+        return;
+      }
+
+      const nlAfter = value.indexOf("\n", end);
+      const lineEnd = nlAfter === -1 ? value.length : nlAfter;
+      const block = value.slice(lineStart, lineEnd);
+      const blockLines = block.split("\n");
+      const newLines = e.shiftKey
+        ? blockLines.map((l) => l.replace(/^ {1,4}/, ""))
+        : blockLines.map((l) => (l.length ? `    ${l}` : l));
+      const newBlock = newLines.join("\n");
+      const firstDelta = newLines[0].length - blockLines[0].length;
+      const totalDelta = newBlock.length - block.length;
+      const next = value.slice(0, lineStart) + newBlock + value.slice(lineEnd);
+      applyEdit(
+        next,
+        Math.max(lineStart, start + firstDelta),
+        Math.max(lineStart, end + totalDelta)
+      );
+      return;
+    }
+
+    if (e.key === "Enter" && start === end) {
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const lineText = value.slice(lineStart, start);
+      const indent = (lineText.match(/^[ \t]*/) || [""])[0];
+      const extra = lineText.trimEnd().endsWith(":") ? "    " : "";
+      if (!indent && !extra) return; // let the browser handle it
+      e.preventDefault();
+      const insert = `\n${indent}${extra}`;
+      const next = value.slice(0, start) + insert + value.slice(end);
+      applyEdit(next, start + insert.length, start + insert.length);
+      return;
+    }
+
+    if (e.key === "Backspace" && start === end) {
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const before = value.slice(lineStart, start);
+      if (before.length >= 4 && /^ +$/.test(before) && before.length % 4 === 0) {
+        e.preventDefault();
+        const next = value.slice(0, start - 4) + value.slice(start);
+        applyEdit(next, start - 4, start - 4);
+      }
+    }
+  };
+
+  return (
+    <div className="editor-shell" ref={shellRef} style={{ fontSize: `${editorFont}px` }}>
+      <div className="editor-gutter" ref={gutRef} style={{ width: `${gutterWidth}px` }} aria-hidden>
+        {lines.map((_, i) => (
+          <div
+            key={i}
+            className="gut-line"
+            style={lineHeights[i] ? { height: `${lineHeights[i]}px` } : undefined}
+          >
+            {i + 1}
+          </div>
+        ))}
+      </div>
+      <textarea
+        ref={taRef}
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        onKeyDown={handleKeyDown}
+        spellCheck={false}
+        className={`editor ${editorWrap ? "wrap" : ""}`}
+        aria-label="Python code editor"
+        placeholder="# Write Python here, then press Run (Ctrl+Enter)"
+      />
+      <div className={`editor-mirror ${editorWrap ? "wrap" : ""}`} ref={mirrorRef} aria-hidden>
+        {lines.map((line, i) => (
+          <div key={i}>{line === "" ? "​" : line}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- asset loading helpers (module scope so the
+   promise cache survives re-mounts) ---------------- */
+const scriptPromises = new Map();
+function loadScriptOnce(src) {
+  if (scriptPromises.has(src)) return scriptPromises.get(src);
+  const p = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.async = false;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.body.appendChild(s);
+  });
+  scriptPromises.set(src, p);
+  p.catch(() => scriptPromises.delete(src));
+  return p;
+}
+function loadCssOnce(href) {
+  if (document.querySelector(`link[data-py-css="${href}"]`)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const l = document.createElement("link");
+    l.rel = "stylesheet";
+    l.href = href;
+    l.dataset.pyCss = href;
+    l.onload = () => resolve();
+    l.onerror = () => resolve(); // stylesheet is cosmetic, never block the run
+    document.head.appendChild(l);
+  });
+}
+
+export default function PythonVisualizerPage() {
+  const [pyodide, setPyodide] = useState(null);
+  const [loadingPyodide, setLoadingPyodide] = useState(true);
+  const [pyodideFailed, setPyodideFailed] = useState(false);
+  const [code, setCode] = useState(DEFAULT_CODE);
   const [runError, setRunError] = useState("");
   const [running, setRunning] = useState(false);
-  // Single editor view (Preview removed)
-  const [selectedFrame, setSelectedFrame] = useState(0);
   const [tutorReady, setTutorReady] = useState(false);
-  const [rawInputs, setRawInputs] = useState([]);
+  const [awaitingInput, setAwaitingInput] = useState(false);
+  const [showContent, setShowContent] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [editorWrap, setEditorWrap] = useState(false);
+  const [editorFont, setEditorFont] = useState(14);
+  const [editorWidth, setEditorWidth] = useState(DEFAULT_EDITOR_WIDTH);
+  const [dragging, setDragging] = useState(false);
+
   const rawInputsRef = useRef([]);
   const vizResizeObserverRef = useRef(null);
-  const vizObservedHostRef = useRef(null);
-  const vizPointerUpHandlerRef = useRef(null);
-  const [awaitingInput, setAwaitingInput] = useState(false);
-  const [inputPrompt, setInputPrompt] = useState("");
-  const [inputValue, setInputValue] = useState("");
-  const [showContent, setShowContent] = useState(false);
-  const [editorWrap, setEditorWrap] = useState(true);
-  const [editorFont, setEditorFont] = useState(14);
-  const [editorSize, setEditorSize] = useState({ width: 0, height: 0 });
+  const vizHostRef = useRef(null);
+  const vizPointerUpRef = useRef(null);
+  const prefsLoadedRef = useRef(false);
+  // mirrors of state read from callbacks that outlive their render
+  // (the visualizer keeps our raw-input handler around after a run)
+  const codeRef = useRef(code);
+  const runningRef = useRef(false);
+  useEffect(() => { codeRef.current = code; }, [code]);
 
-  // Load Pyodide on client
+  /* ---------- restore / persist preferences ---------- */
   useEffect(() => {
-    // entrance effect
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+      if (saved) {
+        if (typeof saved.code === "string" && saved.code.trim()) setCode(saved.code);
+        if (typeof saved.font === "number") setEditorFont(saved.font);
+        if (typeof saved.wrap === "boolean") setEditorWrap(saved.wrap);
+        if (typeof saved.width === "number") setEditorWidth(saved.width);
+      }
+    } catch {}
+    prefsLoadedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!prefsLoadedRef.current) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ code, font: editorFont, wrap: editorWrap, width: editorWidth })
+        );
+      } catch {}
+    }, 300);
+    return () => clearTimeout(t);
+  }, [code, editorFont, editorWrap, editorWidth]);
+
+  /* ---------- load Pyodide ---------- */
+  useEffect(() => {
     const t = setTimeout(() => setShowContent(true), 20);
     let cancelled = false;
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js";
-    script.async = true;
-    script.onload = async () => {
+    (async () => {
       try {
+        await loadScriptOnce("https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js");
         const py = await window.loadPyodide({
           indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/",
         });
         if (cancelled) return;
         setPyodide(py);
-        const tracer = `
-import sys, json, builtins, types
-
-MAX_NODES = 200
-MAX_DEPTH = 3
-MAX_ITEMS = 50
-MAX_REPR = 140
-
-def _short_repr(v):
-    try:
-        r = repr(v)
-    except Exception:
-        r = f'<{type(v).__name__}>'
-    if len(r) > MAX_REPR:
-        r = r[:MAX_REPR] + '…'
-    return r
-
-def _is_primitive(v):
-    return isinstance(v, (int, float, str, bool, type(None)))
-
-class _StdoutCatcher:
-    def __init__(self, buf):
-        self.buf = buf
-    def write(self, s):
-        self.buf.append(s)
-    def flush(self):
-        pass
-
-def run_with_trace(code_str):
-    events = []
-    g = {'__name__': '__main__'}
-    stdout = []
-    old_stdout = sys.stdout
-    sys.stdout = _StdoutCatcher(stdout)
-
-    def walk_stack(f):
-        # Collect frames bottom->top limited to user code
-        chain = []
-        while f is not None:
-            if f.f_code.co_filename == '<user_code>':
-                chain.append(f)
-            f = f.f_back
-        chain.reverse()
-        return chain
-
-    def snapshot(frame, event, arg):
-        # Build heap & stack snapshot
-        node_count = 0
-        heap = {}
-        seen = {}
-
-        def refify(v, depth=0):
-            nonlocal node_count
-            if _is_primitive(v):
-                return v
-            oid = id(v)
-            key = f'id{oid}'
-            if key in seen:
-                return {'$ref': key}
-            if node_count >= MAX_NODES or depth >= MAX_DEPTH:
-                return _short_repr(v)
-            seen[key] = True
-            node_count += 1
-            data = {'type': type(v).__name__, 'repr': _short_repr(v)}
-            try:
-                if isinstance(v, (list, tuple, set, frozenset)):
-                    it = list(v)[:MAX_ITEMS]
-                    data['items'] = [refify(x, depth+1) for x in it]
-                elif isinstance(v, dict):
-                    ent = list(v.items())[:MAX_ITEMS]
-                    kv = []
-                    for k, val in ent:
-                        # keys: try keep primitive else repr
-                        kk = k if _is_primitive(k) else _short_repr(k)
-                        kv.append([kk, refify(val, depth+1)])
-                    data['entries'] = kv
-                elif isinstance(v, types.ModuleType):
-                    pass
-                elif hasattr(v, '__dict__'):
-                    ent = list(v.__dict__.items())[:MAX_ITEMS]
-                    kv = []
-                    for k, val in ent:
-                        if k.startswith('__') and k.endswith('__'):
-                            continue
-                        kv.append([k, refify(val, depth+1)])
-                    data['attrs'] = kv
-                # else: leave repr only
-            except Exception:
-                pass
-            heap[key] = data
-            return {'$ref': key}
-
-        stack_out = []
-        for fr in walk_stack(frame):
-            loc_out = {}
-            for k, v in fr.f_locals.items():
-                if k.startswith('__') and k.endswith('__'):
-                    continue
-                try:
-                    loc_out[k] = refify(v)
-                except Exception:
-                    loc_out[k] = _short_repr(v)
-            stack_out.append({
-                'func': fr.f_code.co_name,
-                'line': fr.f_lineno,
-                'locals': loc_out,
-            })
-
-        ev = {
-            'event': event,
-            'line': frame.f_lineno,
-            'stack': stack_out,
-            'heap': heap,
-            'stdout': ''.join(stdout)
-        }
-        if event == 'return':
-            try:
-                ev['return'] = refify(arg)
-            except Exception:
-                ev['return'] = _short_repr(arg)
-        return ev
-
-    def tracer(frame, event, arg):
-        if event not in ('call', 'line', 'return'):
-            return tracer
-        if frame.f_code.co_filename != '<user_code>':
-            return tracer
-        events.append(snapshot(frame, event, arg))
-        return tracer
-
-    sys.settrace(tracer)
-    try:
-        compiled = compile(code_str, '<user_code>', 'exec')
-        exec(compiled, g, g)
-        status = 'ok'
-        error = None
-    except Exception as e:
-        status = 'error'
-        error = repr(e)
-    finally:
-        sys.settrace(None)
-        sys.stdout = old_stdout
-    return json.dumps({'status': status, 'events': events, 'error': error, 'stdout': ''.join(stdout)})
-`;
-        await py.runPythonAsync(tracer);
       } catch (e) {
         console.error(e);
+        if (!cancelled) setPyodideFailed(true);
       } finally {
         if (!cancelled) setLoadingPyodide(false);
       }
-    };
-    document.body.appendChild(script);
+    })();
     return () => {
       cancelled = true;
-      try { document.body.removeChild(script); } catch {}
       clearTimeout(t);
     };
   }, []);
@@ -324,86 +386,51 @@ def run_with_trace(code_str):
     const size = Math.max(rect.width, rect.height) * 1.2;
     const x = (e.clientX ?? rect.width / 2) - rect.left;
     const y = (e.clientY ?? rect.height / 2) - rect.top;
-    const span = document.createElement('span');
-    span.className = 'ripple';
+    const span = document.createElement("span");
+    span.className = "ripple";
     span.style.width = `${size}px`;
     span.style.height = `${size}px`;
     span.style.left = `${x - size / 2}px`;
     span.style.top = `${y - size / 2}px`;
     target.appendChild(span);
-    span.addEventListener('animationend', () => span.remove());
+    span.addEventListener("animationend", () => span.remove());
   }
 
-  const hasEvents = events && events.length > 0;
-
-  // Python Tutor 
+  /* ---------- Python Tutor assets ---------- */
   const pgLoggerLoadedRef = useRef(false);
   const tutorAssetsLoadedRef = useRef(false);
 
-  async function loadScriptOnce(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) return resolve();
-      const s = document.createElement('script');
-      s.src = src; s.async = true;
-      s.onload = () => resolve();
-      s.onerror = (e) => reject(new Error(`Failed to load ${src}`));
-      document.body.appendChild(s);
-    });
-  }
-  async function loadCssOnce(href) {
-    if (document.querySelector(`link[href="${href}"]`)) return;
-    const l = document.createElement('link');
-    l.rel = 'stylesheet'; l.href = href;
-    document.head.appendChild(l);
-  }
-
   async function ensureTutorAssets() {
-    if (tutorAssetsLoadedRef.current) return;
-    const localBase = '/pythontutor/v3';
-    const remoteBase = 'https://raw.githubusercontent.com/pathrise-eng/pathrise-python-tutor/master/v3';
-    const base = (process.env.NODE_ENV === 'production') ? localBase : localBase; // prefer local always
-    const fall = remoteBase;
-    async function tryLoad(loader, path) {
-      try { await loader(`${base}${path}`); }
-      catch { await loader(`${fall}${path}`); }
+    if (tutorAssetsLoadedRef.current && window.ExecutionVisualizer) return;
+    const base = "/pythontutor/v3";
+    await loadCssOnce(`${base}/js/jquery-ui-1.11.4/jquery-ui.css`);
+    await loadCssOnce(`${base}/css/jquery.qtip.css`);
+    await loadCssOnce(`${base}/css/pytutor.css`);
+    // order matters: these scripts depend on the previous globals
+    await loadScriptOnce(`${base}/js/d3.v2.min.js`);
+    await loadScriptOnce(`${base}/js/jquery-1.8.2.min.js`);
+    await loadScriptOnce(`${base}/js/jquery.ba-bbq.min.js`);
+    await loadScriptOnce(`${base}/js/jquery.ba-dotimeout.min.js`);
+    await loadScriptOnce(`${base}/js/jquery.corner.js`);
+    await loadScriptOnce(`${base}/js/jquery-ui-1.11.4/jquery-ui.min.js`);
+    await loadScriptOnce(`${base}/js/jquery.jsPlumb-1.3.10-all-min.js`);
+    await loadScriptOnce(`${base}/js/jquery.qtip.min.js`);
+    await loadScriptOnce(`${base}/js/pytutor.js`);
+    if (!window.ExecutionVisualizer) {
+      throw new Error("Python Tutor assets failed to load");
     }
-    await tryLoad(loadCssOnce, `/js/jquery-ui-1.11.4/jquery-ui.css`);
-    await tryLoad(loadCssOnce, `/css/jquery.qtip.css`);
-    await tryLoad(loadCssOnce, `/css/pytutor.css`);
-    // must keep order due to globals
-    await tryLoad(loadScriptOnce, `/js/d3.v2.min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery-1.8.2.min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery.ba-bbq.min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery.ba-dotimeout.min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery.corner.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery-ui-1.11.4/jquery-ui.min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery.jsPlumb-1.3.10-all-min.js`);
-    await tryLoad(loadScriptOnce, `/js/jquery.qtip.min.js`);
-    await tryLoad(loadScriptOnce, `/js/pytutor.js`);
     tutorAssetsLoadedRef.current = true;
   }
 
   async function ensurePgLogger() {
-    if (!pyodide) return;
-    if (pgLoggerLoadedRef.current) return;
-    // load modules directly into sys.modules to satisfy imports
-    const localEnc = '/pythontutor/v3/pg_encoder.py';
-    const localLog = '/pythontutor/v3/pg_logger.py';
-    const remoteEnc = 'https://raw.githubusercontent.com/pathrise-eng/pathrise-python-tutor/master/v3/pg_encoder.py';
-    const remoteLog = 'https://raw.githubusercontent.com/pathrise-eng/pathrise-python-tutor/master/v3/pg_logger.py';
-    async function getText(url, fallback) { try { const r = await fetch(url); if (!r.ok) throw new Error(); return await r.text(); } catch { const rr = await fetch(fallback); return await rr.text(); } }
+    if (!pyodide || pgLoggerLoadedRef.current) return;
+    const base = "/pythontutor/v3";
     const [encSrc, logSrc] = await Promise.all([
-      getText(localEnc, remoteEnc),
-      getText(localLog, remoteLog),
+      fetch(`${base}/pg_encoder.py`).then((r) => r.text()),
+      fetch(`${base}/pg_logger.py`).then((r) => r.text()),
     ]);
-    const pythonLoader = `
-import sys, types
-m_enc = types.ModuleType('pg_encoder');
-exec(compile(${JSON.stringify(''+"" )} or '', '<loader>', 'exec'))
-`;
-    // Due to string escaping complexity in template literal, we will set content via globals
-    pyodide.globals.set('___enc_src___', encSrc);
-    pyodide.globals.set('___log_src___', logSrc);
+    pyodide.globals.set("___enc_src___", encSrc);
+    pyodide.globals.set("___log_src___", logSrc);
     await pyodide.runPythonAsync(`
 import sys, types
 # stub optional custom modules used by pg_logger so imports don't fail
@@ -419,206 +446,248 @@ m_log = types.ModuleType('pg_logger')
 exec(___log_src___, m_log.__dict__)
 sys.modules['pg_logger'] = m_log
 `);
+    pyodide.globals.delete("___enc_src___");
+    pyodide.globals.delete("___log_src___");
     pgLoggerLoadedRef.current = true;
   }
 
+  /* ---------- visualizer lifecycle ---------- */
+  const teardownViz = useCallback(() => {
+    if (vizResizeObserverRef.current) {
+      try { vizResizeObserverRef.current.disconnect(); } catch {}
+      vizResizeObserverRef.current = null;
+    }
+    if (vizHostRef.current && vizPointerUpRef.current) {
+      try { vizHostRef.current.removeEventListener("pointerup", vizPointerUpRef.current); } catch {}
+    }
+    vizHostRef.current = null;
+    vizPointerUpRef.current = null;
+    if (typeof window !== "undefined" && window.myVizResizeHandler) {
+      window.removeEventListener("resize", window.myVizResizeHandler);
+      delete window.myVizResizeHandler;
+    }
+    if (typeof window !== "undefined" && window.myVisualizer) {
+      try { delete window.myVisualizer; } catch { window.myVisualizer = undefined; }
+    }
+    const host = typeof document !== "undefined" ? document.getElementById("opt-viz") : null;
+    if (host) host.innerHTML = "";
+  }, []);
+
+  const redraw = useCallback(() => {
+    try { window.myVisualizer && window.myVisualizer.redrawConnectors(); } catch {}
+  }, []);
+
   async function runWithTutor(resume = false, inputsOverride = null) {
-    if (!pyodide) return;
+    if (!pyodide || runningRef.current) return;
+    const source = codeRef.current;
+    runningRef.current = true;
     setRunning(true);
     setRunError("");
     try {
       await ensureTutorAssets();
       await ensurePgLogger();
-      // Build Python Tutor trace using pg_logger within Pyodide
-      // decide which inputs to use: fresh run => [], resume => existing + override
-      const inputs = resume ? (inputsOverride || rawInputsRef.current || []) : [];
-      if (!resume) {
-        rawInputsRef.current = [];
-        setRawInputs([]); // clear inputs on fresh run
-      }
-      pyodide.globals.set('___code_str___', code);
-      pyodide.globals.set('___raw_inputs___', JSON.stringify(inputs));
+
+      const inputs = resume ? inputsOverride || rawInputsRef.current || [] : [];
+      if (!resume) rawInputsRef.current = [];
+
+      pyodide.globals.set("___code_str___", source);
+      pyodide.globals.set("___raw_inputs___", JSON.stringify(inputs));
       const jsonStr = await pyodide.runPythonAsync(`
-import json, sys
+import json
 import pg_logger
 trace = pg_logger.exec_script_str_local(___code_str___, ___raw_inputs___, False, False, lambda cod, tr: tr)
 json.dumps({'code': ___code_str___, 'trace': trace})
 `);
+      pyodide.globals.delete("___code_str___");
+      pyodide.globals.delete("___raw_inputs___");
+
       const data = JSON.parse(jsonStr);
-      const host = document.getElementById('opt-viz');
-      if (vizObservedHostRef.current && vizPointerUpHandlerRef.current) {
-        try { vizObservedHostRef.current.removeEventListener('pointerup', vizPointerUpHandlerRef.current); } catch {}
-        vizObservedHostRef.current = null;
-        vizPointerUpHandlerRef.current = null;
+      const trace = Array.isArray(data.trace) ? data.trace : [];
+
+      teardownViz();
+
+      // errors that end the program are the last entry of the trace
+      const last = trace[trace.length - 1];
+      const fatal =
+        last && ["exception", "uncaught_exception", "instruction_limit_reached"].includes(last.event)
+          ? last
+          : null;
+      if (fatal) {
+        // strip the internal "(<string>, line N)" that Python adds to syntax errors
+        const msg = String(fatal.exception_msg || "Execution stopped")
+          .replace(/\s*\(<string>,\s*line \d+\)/, "")
+          .trim();
+        setRunError(`${msg}${fatal.line ? ` (line ${fatal.line})` : ""}`);
       }
-      if (host) host.innerHTML = '';
-      const safeData = Array.isArray(data.trace) ? data : { code, trace: [] };
-      const viz = new window.ExecutionVisualizer('opt-viz', safeData, {
+
+      // a syntax error (or anything that never ran) has no steps to draw —
+      // showing the error alone beats crashing inside the visualizer
+      const hasSteps = trace.some(
+        (ev) => ev && ev.event !== "uncaught_exception" && ev.event !== "raw_input"
+      );
+      if (!hasSteps) {
+        setTutorReady(false);
+        setAwaitingInput(false);
+        setInputPrompt("");
+        if (!fatal) setRunError("No execution steps were produced. Check your code for syntax errors.");
+        return;
+      }
+
+      // does the program want more input? (read it now: the visualizer pops
+      // the trailing raw_input entry off the trace when it is constructed,
+      // and renders its own prompt box at the last step)
+      setAwaitingInput(Boolean(last && last.event === "raw_input"));
+
+      const host = document.getElementById("opt-viz");
+      if (!host) throw new Error("Visualization container is missing");
+
+      const viz = new window.ExecutionVisualizer("opt-viz", { code: source, trace }, {
         startingInstruction: 0,
-        executeCodeWithRawInputFunc: (rawInputStr /*, curInstr */) => {
-          const v = rawInputStr == null ? '' : String(rawInputStr);
-          const base = Array.isArray(rawInputsRef.current) ? rawInputsRef.current : [];
-          const nextInputs = [...base, v];
-          rawInputsRef.current = nextInputs;
-          setRawInputs(nextInputs);
+        executeCodeWithRawInputFunc: (rawInputStr) => {
+          const v = rawInputStr == null ? "" : String(rawInputStr);
+          const next = [...(rawInputsRef.current || []), v];
+          rawInputsRef.current = next;
           setAwaitingInput(false);
-          runWithTutor(true, nextInputs);
+          runWithTutor(true, next);
         },
       });
-      try {
-        window.myVisualizer = viz;
-        setTimeout(() => { try { viz.redrawConnectors(); } catch {} }, 0);
-        if (window.myVizResizeHandler) {
-          window.removeEventListener('resize', window.myVizResizeHandler);
-        }
-        window.myVizResizeHandler = () => { try { window.myVisualizer && window.myVisualizer.redrawConnectors(); } catch {} };
-        window.addEventListener('resize', window.myVizResizeHandler);
-        if (vizResizeObserverRef.current) {
-          try { vizResizeObserverRef.current.disconnect(); } catch {}
-          vizResizeObserverRef.current = null;
-        }
-        if (typeof ResizeObserver !== 'undefined' && host) {
-          const ro = new ResizeObserver(() => {
-            try { viz.redrawConnectors(); } catch {}
-          });
-          const watchTargets = [
-            host,
-            host.querySelector('.executionVisualizer'),
-            host.querySelector('#dataViz'),
-            host.querySelector('#pyOutputPane'),
-            host.querySelector('#pyOutputPane textarea'),
-            host.querySelector('.ui-resizable'),
-          ].filter(Boolean);
-          watchTargets.forEach((el) => {
-            try { ro.observe(el); } catch {}
-          });
-          vizResizeObserverRef.current = ro;
-        }
-        if (host) {
-          const onPointerUp = () => {
-            try { viz.redrawConnectors(); } catch {}
-          };
-          host.addEventListener('pointerup', onPointerUp);
-          vizObservedHostRef.current = host;
-          vizPointerUpHandlerRef.current = onPointerUp;
-        }
-        // also check trace directly from viz to detect raw_input
-        try {
-          const t2 = Array.isArray(viz.curTrace) ? viz.curTrace : [];
-          const last2 = t2.length ? t2[t2.length - 1] : null;
-          if (last2 && last2.event === 'raw_input') {
-            setAwaitingInput(true);
-            setInputPrompt(String(last2.prompt || 'Input'));
-          }
-        } catch {}
-      } catch {}
+      window.myVisualizer = viz;
+      setTimeout(redraw, 0);
+
+      window.myVizResizeHandler = redraw;
+      window.addEventListener("resize", window.myVizResizeHandler);
+
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(redraw);
+        [
+          host,
+          host.querySelector("#dataViz"),
+          host.querySelector("#pyOutputPane"),
+          host.querySelector("#pyStdout"),
+        ]
+          .filter(Boolean)
+          .forEach((el) => { try { ro.observe(el); } catch {} });
+        vizResizeObserverRef.current = ro;
+      }
+      const onPointerUp = () => redraw();
+      host.addEventListener("pointerup", onPointerUp);
+      vizHostRef.current = host;
+      vizPointerUpRef.current = onPointerUp;
+
       setTutorReady(true);
-      // detect raw_input request 
-      try {
-        const t = Array.isArray(safeData.trace) ? safeData.trace : [];
-        const ri = [...t].reverse().find((e) => e && e.event === 'raw_input');
-        if (ri) {
-          setAwaitingInput(true);
-          setInputPrompt(String(ri.prompt || 'Input'));
-        } else {
-          setAwaitingInput(false);
-          setInputPrompt("");
-        }
-      } catch {}
-      // previously switched to preview; now editor-only
     } catch (e) {
-      setRunError(String(e));
+      setRunError(e && e.message ? e.message : String(e));
     } finally {
+      runningRef.current = false;
       setRunning(false);
     }
   }
 
-  async function submitInput() {
-    if (!awaitingInput) return;
-    const v = inputValue == null ? '' : String(inputValue);
-    const base = Array.isArray(rawInputsRef.current) ? rawInputsRef.current : [];
-    const nextInputs = [...base, v];
-    rawInputsRef.current = nextInputs;
-    setRawInputs(nextInputs);
-    setInputValue("");
-    // re-run new input
-    setAwaitingInput(false);
-    runWithTutor(true, nextInputs);
-  }
-
-  const stepPrev = () => setCurrent((i) => Math.max(0, i - 1));
-  const stepNext = () => setCurrent((i) => Math.min((events.length || 1) - 1, i + 1));
-  const updateEditorSize = useCallback((next) => {
-    if (!next) return;
-    setEditorSize((prev) => {
-      const width = Math.max(320, Math.round((next.width ?? prev.width ?? 0)));
-      const height = Math.max(260, Math.round((next.height ?? prev.height ?? 0)));
-      if (prev.width === width && prev.height === height) return prev;
-      return { width, height };
-    });
-  }, []);
-
   const reset = () => {
-    setEvents([]);
-    setCurrent(0);
     setRunError("");
     setAwaitingInput(false);
-    setInputPrompt("");
-    rawInputsRef.current = [];
-    setRawInputs([]);
-    setInputValue("");
     setTutorReady(false);
-    if (typeof window !== 'undefined') {
-      const viz = document.getElementById('opt-viz');
-      if (viz) viz.innerHTML = '';
-      if (window.myVisualizer) delete window.myVisualizer;
-    }
+    rawInputsRef.current = [];
+    teardownViz();
   };
 
-  useEffect(() => {
-    return () => {
-      if (typeof window !== 'undefined' && window.myVizResizeHandler) {
-        window.removeEventListener('resize', window.myVizResizeHandler);
-        delete window.myVizResizeHandler;
-      }
-      if (vizResizeObserverRef.current) {
-        try { vizResizeObserverRef.current.disconnect(); } catch {}
-        vizResizeObserverRef.current = null;
-      }
-      if (vizObservedHostRef.current && vizPointerUpHandlerRef.current) {
-        try { vizObservedHostRef.current.removeEventListener('pointerup', vizPointerUpHandlerRef.current); } catch {}
-        vizObservedHostRef.current = null;
-        vizPointerUpHandlerRef.current = null;
-      }
-    };
-  }, []);
+  useEffect(() => teardownViz, [teardownViz]);
 
-  // Keyboard
+  /* ---------- fullscreen ---------- */
+  const toggleExpanded = useCallback(() => setExpanded((v) => !v), []);
+
   useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = expanded ? "hidden" : prev;
+    const timers = [setTimeout(redraw, 0), setTimeout(redraw, 260)];
+    return () => {
+      document.body.style.overflow = prev;
+      timers.forEach(clearTimeout);
+    };
+  }, [expanded, redraw]);
+
+  /* ---------- keyboard: step / exit fullscreen ---------- */
+  useEffect(() => {
+    const isTyping = (el) =>
+      el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     const onKey = (e) => {
-      if (!hasEvents) return;
-      if (e.key === "ArrowLeft") stepPrev();
-      if (e.key === "ArrowRight") stepNext();
+      if (e.key === "Escape" && expanded) {
+        setExpanded(false);
+        return;
+      }
+      if (isTyping(document.activeElement)) return;
+      if (!window.myVisualizer) return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        try { window.myVisualizer.stepBack(); } catch {}
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        try { window.myVisualizer.stepForward(); } catch {}
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [hasEvents, events.length]);
+  }, [expanded]);
 
-  const codeLines = useMemo(() => code.split("\n"), [code]);
+  /* ---------- splitter ---------- */
+  const startDrag = (e) => {
+    e.preventDefault();
+    setDragging(true);
+    const startX = e.clientX;
+    const startWidth = editorWidth;
+    const maxWidth = Math.max(MIN_EDITOR_WIDTH, window.innerWidth - 460);
+    const onMove = (ev) => {
+      const next = Math.min(maxWidth, Math.max(MIN_EDITOR_WIDTH, startWidth + ev.clientX - startX));
+      setEditorWidth(next);
+    };
+    const onUp = () => {
+      setDragging(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      redraw();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
-  
+  const rootStyle = useMemo(
+    () => ({ "--editor-panel-width": `${editorWidth}px` }),
+    [editorWidth]
+  );
 
-  // Python Tutor rendering entirely.
+  const canRun = Boolean(pyodide) && !loadingPyodide && !running;
 
-  const rootStyle = useMemo(() => {
-    if (!editorSize.width) return undefined;
-    const pad = 60;
-    const width = Math.max(320, editorSize.width + pad);
-    return { '--editor-panel-width': `${width}px` };
-  }, [editorSize.width]);
+  // plain render helper (not a component) so it is not remounted on every render
+  const runButton = (compact = false) => (
+    <button
+      key={compact ? "run-compact" : "run"}
+      className={`btn primary ${running ? "busy" : ""} ${compact ? "compact" : ""}`}
+      onPointerDown={ripple}
+      onClick={() => runWithTutor(false)}
+      disabled={!canRun}
+      title="Run (Ctrl+Enter)"
+    >
+      {running ? (
+        <>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin"><path d="M21 12a9 9 0 1 1-6.22-8.56" /></svg>
+          Tracing
+        </>
+      ) : (
+        <>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+          Run
+        </>
+      )}
+    </button>
+  );
 
   return (
-    <div className={`py-root ${showContent ? 'show' : ''}`} style={rootStyle}>
+    <div
+      className={`py-root ${showContent ? "show" : ""} ${expanded ? "expanded" : ""} ${dragging ? "dragging" : ""}`}
+      style={rootStyle}
+    >
       <header className="py-header">
         <div className="py-header-inner">
           <div className="brand">
@@ -630,9 +699,14 @@ json.dumps({'code': ___code_str___, 'trace': trace})
             </div>
             <span className="brand-name">Python Visualizer</span>
           </div>
+          <div className="header-hint">
+            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run
+            <span className="hint-sep" />
+            <kbd>&larr;</kbd><kbd>&rarr;</kbd> step
+          </div>
           <nav className="py-nav">
             <a href="/" className="nav-btn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
               Home
             </a>
           </nav>
@@ -645,158 +719,162 @@ json.dumps({'code': ___code_str___, 'trace': trace})
             <span className="panel-title">Code Editor</span>
             <div className="status">
               {loadingPyodide ? (
-                <span className="badge loading"><span className="status-dot" />Loading Python…</span>
+                <span className="badge loading"><span className="status-dot" />Loading Python</span>
               ) : pyodide ? (
                 <span className="badge ok"><span className="status-dot" />Ready</span>
               ) : (
-                <span className="badge error"><span className="status-dot" />Failed</span>
+                <span className="badge error"><span className="status-dot" />Failed to load</span>
               )}
             </div>
           </div>
 
           <div className="editor-wrap">
-              <div className="editor-toolbar">
-                <div className="tool-group">
-                  <label className="tool-label">Examples</label>
-                  <select
-                    className="tool-select"
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === 'fib') {
-                        setCode(`def fib(n):\n    a, b = 0, 1\n    out = []\n    for _ in range(n):\n        out.append(a)\n        a, b = b, a + b\n    return out\n\nprint(fib(10))`);
-                      }
-                      e.target.value = '';
-                    }}
-                    defaultValue=""
-                  >
-                    <option value="" disabled>Select…</option>
-                    <option value="fib">Fibonacci</option>
-                  </select>
-                </div>
-                <div className="tool-group">
-                  <label className="tool-label">Font</label>
-                  <input
-                    type="range"
-                    min={12}
-                    max={20}
-                    step={1}
-                    value={editorFont}
-                    onChange={(e) => setEditorFont(parseInt(e.target.value || '14', 10))}
-                    className="tool-range"
-                  />
-                  <span className="tool-value">{editorFont}px</span>
-                </div>
-                <div className="tool-group">
-                  <label className="tool-checkbox">
-                    <input type="checkbox" checked={editorWrap} onChange={(e) => setEditorWrap(e.target.checked)} />
-                    Wrap
-                  </label>
-                </div>
-                <div className="tool-spacer" />
-                <button className="mini-btn" onPointerDown={ripple} onClick={async () => { try { await navigator.clipboard.writeText(code); } catch {} }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                  Copy
-                </button>
-                <button className="mini-btn" onPointerDown={ripple} onClick={async () => { try { const t = await navigator.clipboard.readText(); if (t) setCode(t); } catch {} }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
-                  Paste
-                </button>
-                <button className="mini-btn danger" onPointerDown={ripple} onClick={() => setCode('')}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                  Clear
-                </button>
+            <div className="editor-toolbar">
+              <div className="tool-group">
+                <label className="tool-label" htmlFor="example-select">Examples</label>
+                <select
+                  id="example-select"
+                  className="tool-select"
+                  value=""
+                  onChange={(e) => {
+                    const found = EXAMPLES.find((x) => x.id === e.target.value);
+                    if (found) setCode(found.code);
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="" disabled>Choose an example</option>
+                  {EXAMPLES.map((ex) => (
+                    <option key={ex.id} value={ex.id}>{ex.label}</option>
+                  ))}
+                </select>
               </div>
-              <EditorWithGutter
-                code={code}
-                setCode={setCode}
-                codeLines={codeLines}
-                editorWrap={editorWrap}
-                editorFont={editorFont}
-                editorSize={editorSize}
-                onResize={updateEditorSize}
-              />
+              <div className="tool-group">
+                <label className="tool-label" htmlFor="font-range">Font</label>
+                <input
+                  id="font-range"
+                  type="range"
+                  min={12}
+                  max={20}
+                  step={1}
+                  value={editorFont}
+                  onChange={(e) => setEditorFont(parseInt(e.target.value || "14", 10))}
+                  className="tool-range"
+                />
+                <span className="tool-value">{editorFont}px</span>
+              </div>
+              <label className="tool-checkbox">
+                <input type="checkbox" checked={editorWrap} onChange={(e) => setEditorWrap(e.target.checked)} />
+                Wrap
+              </label>
+              <div className="tool-spacer" />
+              <button className="mini-btn" onPointerDown={ripple} title="Copy code" onClick={async () => { try { await navigator.clipboard.writeText(code); } catch {} }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                Copy
+              </button>
+              <button className="mini-btn" onPointerDown={ripple} title="Paste from clipboard" onClick={async () => { try { const t = await navigator.clipboard.readText(); if (t) setCode(t); } catch {} }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" /></svg>
+                Paste
+              </button>
+              <button className="mini-btn danger" onPointerDown={ripple} title="Clear editor" onClick={() => setCode("")}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
+                Clear
+              </button>
             </div>
 
+            <EditorWithGutter
+              code={code}
+              setCode={setCode}
+              editorWrap={editorWrap}
+              editorFont={editorFont}
+              onRun={() => runWithTutor(false)}
+            />
+            <div className="editor-foot">
+              <span>{code.split("\n").length} lines</span>
+              <span>Tab indents, Shift+Tab outdents</span>
+            </div>
+          </div>
+
           <div className="controls">
-            <button className={`btn primary ${running ? 'busy' : ''}`} onPointerDown={ripple} onClick={() => runWithTutor(false)} disabled={!pyodide || loadingPyodide || running}>
-              {running ? (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{animation:'spin 1s linear infinite'}}><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
-                  Tracing…
-                </>
-              ) : (
-                <>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  Run
-                </>
-              )}
-            </button>
-            {awaitingInput && (
-              <>
-                <input
-                  className="input prompt"
-                  placeholder={inputPrompt || 'Input'}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') submitInput(); }}
-                  aria-label="Program input"
-                />
-                <button className="btn attention" onPointerDown={ripple} onClick={submitInput} disabled={running || !pyodide}>Submit</button>
-              </>
-            )}
+            {runButton()}
             <button className="btn" onPointerDown={ripple} onClick={reset} disabled={running}>Reset</button>
+            {awaitingInput && (
+              <span className="waiting-input">Waiting for input in the trace panel</span>
+            )}
           </div>
 
           {runError && (
             <div className="callout error">
-              <div className="callout-title">⚠ Error</div>
+              <div className="callout-title">Error</div>
               <div className="callout-body">{runError}</div>
+            </div>
+          )}
+          {pyodideFailed && !runError && (
+            <div className="callout error">
+              <div className="callout-title">Error</div>
+              <div className="callout-body">Could not load the Python runtime. Check your connection and reload the page.</div>
             </div>
           )}
         </section>
 
-        <section className="panel inspect-panel">
+        <div
+          className="splitter"
+          onPointerDown={startDrag}
+          onDoubleClick={() => setEditorWidth(DEFAULT_EDITOR_WIDTH)}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize code editor"
+          title="Drag to resize, double-click to reset"
+        >
+          <span className="splitter-grip" />
+        </div>
+
+        <section className="panel viz-panel">
           <div className="panel-header">
-            <h2 className="panel-title">Python Tutor Visualization</h2>
-            <div className="step-meta">
-              {tutorReady ? <span className="meta">● Ready</span> : <span className="meta">○ Waiting</span>}
+            <h2 className="panel-title">Execution Trace</h2>
+            <div className="panel-actions">
+              <span className={`meta ${tutorReady ? "ok" : ""}`}>
+                <span className="meta-dot" />
+                {running ? "Tracing" : tutorReady ? "Ready" : "Waiting"}
+              </span>
+              {expanded && (
+                <>
+                  {runButton(true)}
+                  <button className="mini-btn" onPointerDown={ripple} onClick={reset} disabled={running}>Reset</button>
+                </>
+              )}
+              <button
+                className="mini-btn"
+                onPointerDown={ripple}
+                onClick={toggleExpanded}
+                title={expanded ? "Exit fullscreen (Esc)" : "Expand to fullscreen"}
+              >
+                {expanded ? (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
+                    Exit fullscreen
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
+                    Fullscreen
+                  </>
+                )}
+              </button>
             </div>
           </div>
-          <div className="inspect-grid">
-            <div className={`card tutor ${awaitingInput ? 'awaiting' : ''} ${tutorReady ? 'ready' : ''}`}>
-              <div className="card-title">Execution Trace</div>
-              <div className="card-body">
-                <div id="opt-viz"></div>
-                {awaitingInput && (
-                  <div style={{marginTop: 12, display: 'flex', gap: 8, alignItems: 'center'}}>
-                    <span style={{fontSize:12,color:'var(--ink-muted)'}}>{inputPrompt || 'Input'}</span>
-                    <input
-                      className="input prompt"
-                      placeholder={inputPrompt || 'Input'}
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') submitInput(); }}
-                      aria-label="Program input"
-                    />
-                    <button className="btn" onClick={submitInput} disabled={running || !pyodide}>Submit</button>
-                  </div>
-                )}
-                {!tutorReady && <div className="empty">Write code and press Run to visualize execution</div>}
+
+          <div className="viz-body">
+            <div id="opt-viz" />
+            {!tutorReady && (
+              <div className="empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
+                <p>Write code and press Run to visualize execution</p>
+                <span>Then use Forward / Back, or the arrow keys, to step through it</span>
               </div>
-            </div>
+            )}
           </div>
         </section>
       </main>
-
-
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .btn.primary { display: inline-flex; align-items: center; gap: 8px; }
-      `}</style>
     </div>
   );
 }
-
