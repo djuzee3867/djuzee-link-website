@@ -102,19 +102,7 @@
   justify-content: space-between;
   gap: 16px;
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px; height: 36px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--accent), var(--cyan));
-  box-shadow: 0 4px 14px var(--accent-glow);
-  color: #fff;
-  flex-shrink: 0;
-}
-.brand-icon svg { width: 20px; height: 20px; }
+.brand { display: flex; align-items: center; }
 .brand-name {
   font-weight: 800;
   font-size: 17px;
@@ -133,7 +121,10 @@
   font-size: 12px;
   color: var(--ink-muted);
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
+.kbd-hints { display: inline-flex; align-items: center; gap: 6px; }
 .header-hint kbd {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -409,15 +400,15 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  min-height: 220px;
-  height: 52vh;
+  /* the height is set from the code's own height — see measure() */
+  min-height: 300px;
+  height: 300px;
   width: 100%;
   border-radius: var(--radius-lg);
   border: 1px solid var(--glass-border);
   background: var(--bg-elevated);
   box-sizing: border-box;
-  overflow: hidden;      /* required for the native resize grip */
-  resize: vertical;      /* drag the bottom-right corner to change height */
+  overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), var(--shadow-sm);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -442,47 +433,153 @@
 .gut-line {
   min-height: 1.6em;
   line-height: 1.6em;
-  padding: 0 6px 0 4px;
+  padding: 0 6px 0 21px; /* left lane holds the current/previous line arrows */
 }
 
-.editor-shell .editor {
+/* The textarea keeps the caret and selection but paints no text — the
+   highlight layer underneath draws it, so the two must line up exactly. */
+.editor-shell .editor,
+.editor-highlight {
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.6;
+  tab-size: 4;
+  box-sizing: border-box;
+}
+/* holds the two layers so they share exactly the same box */
+.editor-code {
+  position: relative;
   flex: 1 1 auto;
-  width: 100%;
   min-width: 0;
+  height: 100%;
+}
+.editor-shell .editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
   height: 100%;
   resize: none;
   border: none !important;
   background: transparent !important;
   border-radius: 0 !important;
-  padding: 14px 16px;
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: 1.6;
-  color: var(--ink);
-  outline: none;
+  color: transparent;
   caret-color: var(--accent);
-  tab-size: 4;
+  outline: none;
   overflow: auto;
 }
 .editor-shell .editor::placeholder { color: var(--ink-faint); }
+.editor-shell .editor::selection { background: rgba(99,102,241,0.24); }
 .editor-shell .editor.wrap { white-space: pre-wrap; overflow-wrap: break-word; overflow-x: hidden; }
 .editor-shell .editor:not(.wrap) { white-space: pre; }
 
-/* invisible twin of the textarea used to measure wrapped line heights */
-.editor-mirror {
+.editor-highlight {
   position: absolute;
   top: 0;
-  left: -99999px;
-  visibility: hidden;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   pointer-events: none;
-  padding: 14px 16px;
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: 1.6;
+  color: var(--ink);
   white-space: pre;
-  box-sizing: border-box;
 }
-.editor-mirror.wrap { white-space: pre-wrap; overflow-wrap: break-word; }
+.editor-highlight.wrap { white-space: pre-wrap; overflow-wrap: break-word; }
+.hl-line { min-height: 1.6em; }
+
+/* Line the tracer is pointing at. The tint is drawn with a box-shadow so it
+   bleeds into the editor padding instead of stopping at the text box. */
+.hl-line.is-prev,
+.hl-line.is-cur {
+  border-radius: 3px;
+  background: var(--line-mark);
+  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
+}
+.hl-line.is-prev  { --line-mark: rgba(34,197,94,0.16); }
+.hl-line.is-cur   { --line-mark: rgba(99,102,241,0.18); }
+.hl-line.is-error {
+  --line-mark: rgba(239,68,68,0.16);
+  border-radius: 3px;
+  background: var(--line-mark);
+  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
+  text-decoration: underline wavy rgba(239,68,68,0.75);
+  text-underline-offset: 3px;
+}
+
+.gut-line { position: relative; }
+.gut-line.is-prev,
+.gut-line.is-cur {
+  font-weight: 700;
+}
+.gut-line.is-prev { color: #15803d; }
+.gut-line.is-cur { color: var(--accent-dim); }
+.gut-line.is-error { color: var(--err); font-weight: 700; }
+.gut-line.is-error::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--err);
+  box-shadow: 0 0 0 3px rgba(239,68,68,0.18);
+}
+
+/* arrows pointing at the two lines the tracer cares about */
+.gut-line.is-prev::before,
+.gut-line.is-cur::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 17px;
+  height: 13px;
+  margin-top: -7px;
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 17px 13px;
+}
+.gut-line.is-prev::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%2322c55e'/%3E%3C/svg%3E");
+}
+.gut-line.is-cur::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%234f46e5'/%3E%3C/svg%3E");
+  animation: arrow-nudge 1.6s ease-in-out infinite;
+}
+@keyframes arrow-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(2px); }
+}
+
+.line-legend { display: inline-flex; align-items: center; gap: 5px; }
+.line-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.line-legend .swatch + .swatch { margin-left: 10px; }
+.line-legend .swatch.prev { background: rgba(34,197,94,0.5); }
+.line-legend .swatch.cur { background: rgba(99,102,241,0.55); }
+.line-legend .swatch.err { background: rgba(239,68,68,0.55); }
+
+/* Syntax colours */
+.t-kw        { color: #cf222e; }
+.t-str       { color: #0a3069; }
+.t-comment   { color: #6e7781; font-style: italic; }
+.t-num       { color: #0550ae; }
+.t-builtin   { color: #8250df; }
+.t-fn        { color: #6639ba; }
+.t-fn-def    { color: #6639ba; font-weight: 600; }
+.t-cls       { color: #953800; font-weight: 600; }
+.t-decorator { color: #953800; }
+.t-self      { color: #cf222e; font-style: italic; }
+.t-attr      { color: #1f2937; }
+
 
 /* Scrollbar */
 .editor-shell .editor::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -505,6 +602,7 @@
   display: flex;
   gap: 10px;
   align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
 }
 /* hint shown while the program waits for input in the trace panel */
@@ -622,43 +720,55 @@
 }
 
 /* ---------- Visualization panel ---------- */
-.viz-panel { position: relative; }
+/* starts as tall as the editor panel, then grows if the trace needs more */
+.viz-panel {
+  position: relative;
+  align-self: stretch;
+}
 .viz-body {
   position: relative;
   padding: 14px;
-  overflow: auto;
-  max-height: calc(100svh - var(--header-h) - 120px);
+  overflow: auto; /* a wide heap scrolls sideways in here */
+  flex: 1;
+  min-height: 0;
 }
 .viz-body #opt-viz { min-height: 0; width: 100%; position: relative; }
 
-/* Fullscreen */
-.py-root.expanded .editor-panel,
-.py-root.expanded .splitter { display: none; }
+/* Fullscreen: the whole workspace fills the viewport. The editor has to stay
+   on screen — it is the only place the code is shown. */
 .py-root.expanded .py-main {
-  grid-template-columns: minmax(0, 1fr);
-  margin: 0;
-  padding: 0;
-  /* .py-main is a stacking context (z-index: 1), so the panel's own z-index
-     is scoped to it — lift the whole thing above the sticky header */
-  z-index: 70;
-}
-.py-root.expanded .viz-panel {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  border-radius: 0;
-  border: none;
+  z-index: 70; /* above the sticky header */
+  margin: 0;
+  padding: 10px;
+  height: 100svh;
+  box-sizing: border-box;
+  align-items: stretch;
+  overflow: hidden;
   background: var(--bg-base);
-  box-shadow: none;
 }
-.py-root.expanded .panel-header {
-  border-radius: 0;
-  background: var(--bg-elevated); /* opaque: nothing behind may show through */
+.py-root.expanded .panel {
+  height: 100%;
+  min-height: 0;
+}
+.py-root.expanded .editor-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* in fullscreen the panel is a fixed height, so the editor fills it and
+   scrolls internally rather than growing (beats the inline height) */
+.py-root.expanded .editor-shell {
+  flex: 1 1 0;
+  height: auto !important;
+  min-height: 0;
 }
 .py-root.expanded .viz-body {
   flex: 1;
+  min-height: 0;
   max-height: none;
-  height: calc(100svh - 58px);
 }
 
 /* ---------- Empty state ---------- */
@@ -684,7 +794,8 @@
     gap: 14px;
   }
   .splitter { display: none; }
-  .header-hint { display: none; }
+  /* keep the colour legend, drop the keyboard hints */
+  .kbd-hints { display: none; }
   .editor-shell { height: 40vh; }
   .viz-body { max-height: none; }
 }
@@ -695,34 +806,33 @@
 
 #opt-viz { color: var(--ink); }
 
-/* Left-align the code pane (upstream centers it, leaving a big gap) */
-#opt-viz table#pyCodeOutput { margin: 6px 0 !important; }
-#opt-viz #pyCodeOutputDiv {
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-md) !important;
-  max-height: 55vh !important;
-  padding: 2px 6px !important;
-}
-#opt-viz #codeDisplayDiv { width: auto !important; min-width: 340px; }
-#opt-viz td.vizLayoutTd { vertical-align: top !important; }
-#opt-viz #vizHeader { display: none !important; }
-
-/* Legend */
-#opt-viz #legendDiv {
-  font-size: 12px !important;
-  color: var(--ink-secondary) !important;
-}
-
-/* breakpoint hint */
+/* Only one code box on the page: the editor. Everything Python Tutor draws
+   that duplicates or refers to its own copy of the code is dropped. */
+#opt-viz #pyCodeOutputDiv,
+#opt-viz #legendDiv,
 #opt-viz #executionSliderDocs,
-#opt-viz #langDisplayDiv {
-  color: var(--ink-muted) !important;
-  font-size: 11px !important;
-  line-height: 1.5 !important;
-  margin-top: 4px !important;
+#opt-viz #langDisplayDiv,
+#opt-viz #editCodeLinkDiv,
+#opt-viz #annotateLinkDiv,
+#opt-viz #vizHeader {
+  display: none !important;
 }
+
+/* verticalStack: stepper on top, output and data view underneath.
+   A wide heap makes the shared table thousands of pixels wide, so the stepper
+   is pinned to the left and given the visible width in JS (see redraw()). */
+#opt-viz table.visualizer { width: 100% !important; }
+#opt-viz td.vizLayoutTd { vertical-align: top !important; }
+#opt-viz #vizLayoutTdSecond { padding-top: 6px !important; }
+#opt-viz #codeDisplayDiv {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  padding-right: 10px;
+  background: var(--bg-elevated);
+}
+#opt-viz #executionSlider { max-width: 100%; }
 
 /* Print output pane */
 #opt-viz #progOutputs { margin-left: 0 !important; }

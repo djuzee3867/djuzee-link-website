@@ -1,150 +1,75 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EXAMPLES, DEFAULT_CODE } from "./examples";
+import { highlightPython } from "./highlight";
 import "./python.css";
 
-const DEFAULT_CODE = `def fib(n):
-    a, b = 0, 1
-    seq = []
-    for _ in range(n):
-        seq.append(a)
-        a, b = b, a + b
-    return seq
-
-nums = fib(6)
-print("fib:", nums)
-total = sum(nums)
-print("total:", total)
-`;
-
-const EXAMPLES = [
-  {
-    id: "fib",
-    label: "Fibonacci",
-    code: DEFAULT_CODE,
-  },
-  {
-    id: "loop",
-    label: "Loop & condition",
-    code: `total = 0
-for i in range(1, 11):
-    if i % 2 == 0:
-        total += i
-        print("even:", i, "->", total)
-    else:
-        print("odd:", i)
-
-print("total =", total)
-`,
-  },
-  {
-    id: "list",
-    label: "List & slicing",
-    code: `nums = [5, 3, 8, 1, 9, 2]
-nums.sort()
-print(nums)
-
-top3 = nums[-3:]
-print("top3:", top3)
-
-squares = [n * n for n in nums]
-print("squares:", squares)
-`,
-  },
-  {
-    id: "dict",
-    label: "Dictionary",
-    code: `scores = {"ann": 82, "bob": 91, "cat": 74}
-scores["dan"] = 68
-
-for name, score in scores.items():
-    grade = "A" if score >= 90 else "B" if score >= 80 else "C"
-    print(name, score, grade)
-
-best = max(scores, key=scores.get)
-print("best:", best)
-`,
-  },
-  {
-    id: "recursion",
-    label: "Recursion",
-    code: `def factorial(n):
-    if n <= 1:
-        return 1
-    return n * factorial(n - 1)
-
-print(factorial(5))
-`,
-  },
-  {
-    id: "class",
-    label: "Class & object",
-    code: `class Counter:
-    def __init__(self, start=0):
-        self.value = start
-        self.history = []
-
-    def add(self, n):
-        self.value += n
-        self.history.append(n)
-        return self.value
-
-c = Counter(10)
-c.add(5)
-c.add(-3)
-print(c.value, c.history)
-`,
-  },
-  {
-    id: "input",
-    label: "Read input()",
-    code: `name = input("What is your name? ")
-print("Hello,", name)
-`,
-  },
-];
 
 const STORAGE_KEY = "py-visualizer-state";
 const DEFAULT_EDITOR_WIDTH = 440;
 const MIN_EDITOR_WIDTH = 320;
+const MIN_EDITOR_HEIGHT = 300;
+const EDITOR_PADDING_Y = 14; // must match .editor-highlight's bottom padding
 
 /* ---------------------------------------------------------------
-   Editor: textarea + line-number gutter that stays aligned even
-   when soft-wrap is on (heights are measured from a hidden mirror).
+   Editor: a transparent textarea sitting on top of a highlight layer.
+   The layer is also what the gutter measures, so line numbers stay
+   aligned even when a line soft-wraps onto several rows.
    --------------------------------------------------------------- */
-function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun }) {
+function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLine, prevLine, errorLine }) {
   const taRef = useRef(null);
   const gutRef = useRef(null);
-  const mirrorRef = useRef(null);
+  const layerRef = useRef(null);
   const shellRef = useRef(null);
   const pendingSelRef = useRef(null);
   const [lineHeights, setLineHeights] = useState([]);
 
   const lines = useMemo(() => code.split("\n"), [code]);
+  const highlighted = useMemo(() => highlightPython(code), [code]);
   const digits = String(lines.length).length;
-  const gutterWidth = Math.max(3, digits + 1) * Math.max(8, Math.round(editorFont * 0.62));
+  // 21px lane on the left for the arrows + 6px on the right, then the digits
+  const gutterWidth = 27 + Math.max(2, digits) * Math.max(8, Math.round(editorFont * 0.62));
 
-  // keep gutter scrolled with the textarea
+  // keep the gutter and the highlight layer scrolled with the textarea
   useEffect(() => {
     const ta = taRef.current;
-    const g = gutRef.current;
-    if (!ta || !g) return;
-    const onScroll = () => { g.scrollTop = ta.scrollTop; };
+    if (!ta) return;
+    const onScroll = () => {
+      if (gutRef.current) gutRef.current.scrollTop = ta.scrollTop;
+      if (layerRef.current) {
+        layerRef.current.scrollTop = ta.scrollTop;
+        layerRef.current.scrollLeft = ta.scrollLeft;
+      }
+    };
     ta.addEventListener("scroll", onScroll, { passive: true });
     return () => ta.removeEventListener("scroll", onScroll);
   }, []);
 
-  // measure real (wrapped) height of every line
+  // measure real (wrapped) height of every line off the highlight layer
   const measure = useCallback(() => {
     const ta = taRef.current;
-    const m = mirrorRef.current;
-    if (!ta || !m) return;
+    const layer = layerRef.current;
+    const shell = shellRef.current;
+    if (!ta || !layer) return;
+    // match the textarea's content width exactly, scrollbar included
+    layer.style.width = `${ta.clientWidth}px`;
+
+    // grow the editor with the code instead of scrolling inside a fixed box
+    const last = layer.lastElementChild;
+    if (shell && last) {
+      // + the horizontal scrollbar the textarea shows when wrapping is off
+      const scrollbar = Math.max(0, ta.offsetHeight - ta.clientHeight);
+      const contentHeight = last.offsetTop + last.offsetHeight + EDITOR_PADDING_Y + scrollbar;
+      const px = `${Math.max(MIN_EDITOR_HEIGHT, Math.ceil(contentHeight) + 2)}px`;
+      if (shell.style.height !== px) shell.style.height = px;
+    }
+
     if (!editorWrap) {
       setLineHeights((prev) => (prev.length ? [] : prev));
       return;
     }
-    m.style.width = `${ta.clientWidth}px`;
-    const next = Array.from(m.children, (el) => el.offsetHeight);
+    const next = Array.from(layer.children, (el) => el.offsetHeight);
     setLineHeights((prev) =>
       prev.length === next.length && prev.every((h, i) => h === next[i]) ? prev : next
     );
@@ -158,6 +83,22 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun }) {
     if (shellRef.current) ro.observe(shellRef.current);
     return () => ro.disconnect();
   }, [measure]);
+
+  // keep the line of interest in view while stepping (or when a run fails)
+  const focusLine = errorLine || curLine;
+  useEffect(() => {
+    const ta = taRef.current;
+    const layer = layerRef.current;
+    if (!ta || !layer || !focusLine) return;
+    const el = layer.children[focusLine - 1];
+    if (!el) return;
+    const top = el.offsetTop;
+    const bottom = top + el.offsetHeight;
+    if (top < ta.scrollTop + 8) ta.scrollTop = Math.max(0, top - 8);
+    else if (bottom > ta.scrollTop + ta.clientHeight - 8) {
+      ta.scrollTop = bottom - ta.clientHeight + 8;
+    }
+  }, [focusLine]);
 
   // restore caret after a programmatic edit (tab / enter / backspace)
   useEffect(() => {
@@ -238,33 +179,44 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun }) {
     }
   };
 
+  // an error outranks the stepper markers on the same line
+  const lineState = (n) =>
+    n === errorLine ? " is-error" : n === curLine ? " is-cur" : n === prevLine ? " is-prev" : "";
+
   return (
     <div className="editor-shell" ref={shellRef} style={{ fontSize: `${editorFont}px` }}>
       <div className="editor-gutter" ref={gutRef} style={{ width: `${gutterWidth}px` }} aria-hidden>
         {lines.map((_, i) => (
           <div
             key={i}
-            className="gut-line"
+            className={`gut-line${lineState(i + 1)}`}
             style={lineHeights[i] ? { height: `${lineHeights[i]}px` } : undefined}
           >
             {i + 1}
           </div>
         ))}
       </div>
-      <textarea
-        ref={taRef}
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        onKeyDown={handleKeyDown}
-        spellCheck={false}
-        className={`editor ${editorWrap ? "wrap" : ""}`}
-        aria-label="Python code editor"
-        placeholder="# Write Python here, then press Run (Ctrl+Enter)"
-      />
-      <div className={`editor-mirror ${editorWrap ? "wrap" : ""}`} ref={mirrorRef} aria-hidden>
-        {lines.map((line, i) => (
-          <div key={i}>{line === "" ? "​" : line}</div>
-        ))}
+      {/* one flex item holding both layers, so their geometry is identical */}
+      <div className="editor-code">
+        <div className={`editor-highlight ${editorWrap ? "wrap" : ""}`} ref={layerRef} aria-hidden>
+          {highlighted.map((html, i) => (
+            <div
+              key={i}
+              className={`hl-line${lineState(i + 1)}`}
+              dangerouslySetInnerHTML={{ __html: html || "&#8203;" }}
+            />
+          ))}
+        </div>
+        <textarea
+          ref={taRef}
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={handleKeyDown}
+          spellCheck={false}
+          className={`editor ${editorWrap ? "wrap" : ""}`}
+          aria-label="Python code editor"
+          placeholder="# Write Python here, then press Run (Ctrl+Enter)"
+        />
       </div>
     </div>
   );
@@ -309,6 +261,9 @@ export default function PythonVisualizerPage() {
   const [running, setRunning] = useState(false);
   const [tutorReady, setTutorReady] = useState(false);
   const [awaitingInput, setAwaitingInput] = useState(false);
+  // lines the tracer is pointing at, mirrored from the visualizer into the editor
+  const [execLines, setExecLines] = useState({ cur: null, prev: null });
+  const [errorLine, setErrorLine] = useState(null);
   const [showContent, setShowContent] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [editorWrap, setEditorWrap] = useState(false);
@@ -474,6 +429,15 @@ sys.modules['pg_logger'] = m_log
   }, []);
 
   const redraw = useCallback(() => {
+    // The stepper shares a table with the data view, so a wide heap stretches
+    // it to thousands of pixels. Pin it to the visible width instead.
+    const host = document.getElementById("opt-viz");
+    const body = host && host.closest(".viz-body");
+    const stepper = host && host.querySelector("#codeDisplayDiv");
+    if (stepper && body) {
+      const px = `${Math.max(320, body.clientWidth - 34)}px`;
+      if (stepper.style.width !== px) stepper.style.width = px;
+    }
     try { window.myVisualizer && window.myVisualizer.redrawConnectors(); } catch {}
   }, []);
 
@@ -483,6 +447,7 @@ sys.modules['pg_logger'] = m_log
     runningRef.current = true;
     setRunning(true);
     setRunError("");
+    setErrorLine(null);
     try {
       await ensureTutorAssets();
       await ensurePgLogger();
@@ -518,6 +483,9 @@ json.dumps({'code': ___code_str___, 'trace': trace})
           .replace(/\s*\(<string>,\s*line \d+\)/, "")
           .trim();
         setRunError(`${msg}${fatal.line ? ` (line ${fatal.line})` : ""}`);
+        // mark the offending line in the editor — for a syntax error that is
+        // the only feedback there is, since nothing ran
+        if (fatal.line) setErrorLine(fatal.line);
       }
 
       // a syntax error (or anything that never ran) has no steps to draw —
@@ -528,7 +496,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
       if (!hasSteps) {
         setTutorReady(false);
         setAwaitingInput(false);
-        setInputPrompt("");
+        setExecLines({ cur: null, prev: null });
         if (!fatal) setRunError("No execution steps were produced. Check your code for syntax errors.");
         return;
       }
@@ -543,6 +511,11 @@ json.dumps({'code': ___code_str___, 'trace': trace})
 
       const viz = new window.ExecutionVisualizer("opt-viz", { code: source, trace }, {
         startingInstruction: 0,
+        // the code is shown once, in our own editor: Python Tutor keeps the
+        // stepper and the data view, but draws no second copy of the code
+        verticalStack: true,
+        arrowLines: false,
+        highlightLines: false,
         executeCodeWithRawInputFunc: (rawInputStr) => {
           const v = rawInputStr == null ? "" : String(rawInputStr);
           const next = [...(rawInputsRef.current || []), v];
@@ -552,6 +525,20 @@ json.dumps({'code': ___code_str___, 'trace': trace})
         },
       });
       window.myVisualizer = viz;
+
+      // mirror the stepper's position into the editor on every step
+      const syncLines = (v) => {
+        try {
+          v.updateCurPrevLines();
+          setExecLines({ cur: v.curLineNumber || null, prev: v.prevLineNumber || null });
+        } catch {}
+      };
+      viz.add_pytutor_hook("end_updateOutput", (args) => {
+        syncLines(args.myViz);
+        return [false];
+      });
+      syncLines(viz);
+
       setTimeout(redraw, 0);
 
       window.myVizResizeHandler = redraw;
@@ -561,6 +548,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
         const ro = new ResizeObserver(redraw);
         [
           host,
+          host.closest(".viz-body"),
           host.querySelector("#dataViz"),
           host.querySelector("#pyOutputPane"),
           host.querySelector("#pyStdout"),
@@ -587,9 +575,20 @@ json.dumps({'code': ___code_str___, 'trace': trace})
     setRunError("");
     setAwaitingInput(false);
     setTutorReady(false);
+    setExecLines({ cur: null, prev: null });
+    setErrorLine(null);
     rawInputsRef.current = [];
     teardownViz();
   };
+
+  // the splitter changes the panel width without the observers noticing
+  useEffect(() => { redraw(); }, [editorWidth, redraw]);
+
+  // editing invalidates the trace, so drop the line markers
+  useEffect(() => {
+    setExecLines((p) => (p.cur || p.prev ? { cur: null, prev: null } : p));
+    setErrorLine(null);
+  }, [code]);
 
   useEffect(() => teardownViz, [teardownViz]);
 
@@ -660,10 +659,9 @@ json.dumps({'code': ___code_str___, 'trace': trace})
   const canRun = Boolean(pyodide) && !loadingPyodide && !running;
 
   // plain render helper (not a component) so it is not remounted on every render
-  const runButton = (compact = false) => (
+  const runButton = () => (
     <button
-      key={compact ? "run-compact" : "run"}
-      className={`btn primary ${running ? "busy" : ""} ${compact ? "compact" : ""}`}
+      className={`btn primary ${running ? "busy" : ""}`}
       onPointerDown={ripple}
       onClick={() => runWithTutor(false)}
       disabled={!canRun}
@@ -691,18 +689,20 @@ json.dumps({'code': ___code_str___, 'trace': trace})
       <header className="py-header">
         <div className="py-header-inner">
           <div className="brand">
-            <div className="brand-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
-            </div>
             <span className="brand-name">Python Visualizer</span>
           </div>
           <div className="header-hint">
-            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run
+            <span className="kbd-hints">
+              <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run
+              <span className="hint-sep" />
+              <kbd>&larr;</kbd><kbd>&rarr;</kbd> step
+            </span>
             <span className="hint-sep" />
-            <kbd>&larr;</kbd><kbd>&rarr;</kbd> step
+            <span className="line-legend">
+              <span className="swatch prev" />just executed
+              <span className="swatch cur" />next to execute
+              <span className="swatch err" />error
+            </span>
           </div>
           <nav className="py-nav">
             <a href="/" className="nav-btn">
@@ -787,9 +787,12 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               editorWrap={editorWrap}
               editorFont={editorFont}
               onRun={() => runWithTutor(false)}
+              curLine={execLines.cur}
+              prevLine={execLines.prev}
+              errorLine={errorLine}
             />
             <div className="editor-foot">
-              <span>{code.split("\n").length} lines</span>
+              <span>{code.split("\n").length === 1 ? "1 line" : `${code.split("\n").length} lines`}</span>
               <span>Tab indents, Shift+Tab outdents</span>
             </div>
           </div>
@@ -836,12 +839,6 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                 <span className="meta-dot" />
                 {running ? "Tracing" : tutorReady ? "Ready" : "Waiting"}
               </span>
-              {expanded && (
-                <>
-                  {runButton(true)}
-                  <button className="mini-btn" onPointerDown={ripple} onClick={reset} disabled={running}>Reset</button>
-                </>
-              )}
               <button
                 className="mini-btn"
                 onPointerDown={ripple}
