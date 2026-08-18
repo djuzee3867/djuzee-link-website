@@ -32,19 +32,22 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
   const gutterWidth = 27 + Math.max(2, digits) * Math.max(8, Math.round(editorFont * 0.62));
 
   // keep the gutter and the highlight layer scrolled with the textarea
+  const syncScroll = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    if (gutRef.current) gutRef.current.scrollTop = ta.scrollTop;
+    if (layerRef.current) {
+      layerRef.current.scrollTop = ta.scrollTop;
+      layerRef.current.scrollLeft = ta.scrollLeft;
+    }
+  }, []);
+
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
-    const onScroll = () => {
-      if (gutRef.current) gutRef.current.scrollTop = ta.scrollTop;
-      if (layerRef.current) {
-        layerRef.current.scrollTop = ta.scrollTop;
-        layerRef.current.scrollLeft = ta.scrollLeft;
-      }
-    };
-    ta.addEventListener("scroll", onScroll, { passive: true });
-    return () => ta.removeEventListener("scroll", onScroll);
-  }, []);
+    ta.addEventListener("scroll", syncScroll, { passive: true });
+    return () => ta.removeEventListener("scroll", syncScroll);
+  }, [syncScroll]);
 
   // measure real (wrapped) height of every line off the highlight layer
   const measure = useCallback(() => {
@@ -98,7 +101,9 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
     else if (bottom > ta.scrollTop + ta.clientHeight - 8) {
       ta.scrollTop = bottom - ta.clientHeight + 8;
     }
-  }, [focusLine]);
+    // setting scrollTop does not reliably fire a scroll event, so sync by hand
+    syncScroll();
+  }, [focusLine, syncScroll]);
 
   // restore caret after a programmatic edit (tab / enter / backspace)
   useEffect(() => {
