@@ -103,8 +103,6 @@ export default function LinkPage() {
     { title: "Schedule", desc: "Timetable and appointment tracking", url: "/Schedule", icon: <CalendarIcon /> },
     { title: "QR Code", desc: "Generate and manage quick links", url: "/qr", icon: <QrIcon /> },
     { title: "Foodwaste", desc: "The Past of Research for KKR-NCST", url: "/foodwaste", icon: <ChartIcon /> },
-    { title: "canvas", desc: "canvas", url: "https://canva.link/s67vzyjaogor7tl", icon: <GridIcon /> },
-    { title: "test", desc: "test", url: "/", icon: <GridIcon /> },
 
   ];
 
