@@ -1,461 +1,350 @@
 /* ============================================================
-   Python Visualizer — Light Design System
+   Python Visualizer — app shell
+   Dark by default; every colour comes from a token so the light
+   theme is the same layout with a different palette.
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
-/* ---------- Design Tokens ---------- */
 .py-root {
-  --bg-base: #f8fafc;
-  --bg-elevated: #ffffff;
-  --bg-surface: rgba(0, 0, 0, 0.025);
-  --bg-surface-hover: rgba(0, 0, 0, 0.045);
-  --glass: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(0, 0, 0, 0.08);
-  --glass-border-hover: rgba(0, 0, 0, 0.14);
+  --bg: #0d0e15;
+  --pane: #14151f;
+  --pane-2: #191b27;
+  --raised: #1e2030;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-2: rgba(255, 255, 255, 0.05);
 
-  --ink: #1e293b;
-  --ink-secondary: #475569;
-  --ink-muted: #94a3b8;
-  --ink-faint: #cbd5e1;
+  --ink: #e7e9f3;
+  --ink-2: rgba(231, 233, 243, 0.64);
+  --ink-3: rgba(231, 233, 243, 0.38);
 
-  --accent: #6366f1;       /* indigo-500 */
-  --accent-bright: #818cf8;
-  --accent-dim: #4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.18);
-  --cyan: #06b6d4;
+  --accent: #7c7cf0;
+  --accent-2: #9b8cff;
+  --green: #4ade80;
+  --pink: #f472b6;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --amber-ink: #1a1405;
 
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --err: #ef4444;
+  /* line markers and their gutter arrows */
+  --mark-prev: rgba(74, 222, 128, 0.16);
+  --mark-cur: rgba(244, 114, 182, 0.16);
+  --mark-err: rgba(248, 113, 113, 0.16);
+  --err-wave: rgba(248, 113, 113, 0.7);
+  --err-halo: rgba(248, 113, 113, 0.18);
+  --str-ink: #c3e88d;
+  --link-ink: rgba(231, 233, 243, 0.45);
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-pill: 999px;
+  /* surfaces for the frames and objects on the canvas — the same cool/warm
+     split Python Tutor uses, mixed dark so it works on the black shell */
+  --frame-bg: #181d2e;
+  --frame-line: rgba(146, 170, 219, 0.3);
+  --card-bg: #262012;
+  --card-line: rgba(233, 198, 102, 0.34);
+  --cell-line: rgba(233, 198, 102, 0.24);
+  --cell-head: rgba(233, 198, 102, 0.09);
+  --arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%23000'/%3E%3C/svg%3E");
 
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 14px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
-  --shadow-lg: 0 12px 36px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  /* syntax */
+  --t-kw: #c792ea;
+  --t-str: #c3e88d;
+  --t-num: #f78c6c;
+  --t-comment: #6b7089;
+  --t-builtin: #82aaff;
+  --t-fn: #82aaff;
+  --t-cls: #ffcb6b;
+  --t-self: #f07178;
 
-  --header-h: 64px;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-
-  font-family: var(--font-ui);
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
   color: var(--ink);
-  min-height: 100svh;
-  background: var(--bg-base);
-  position: relative;
-  overflow-x: hidden;
-
-  /* entrance — opacity only: a transform here would become the containing
-     block for the fullscreen panel and shrink it by the scrollbar width */
+  font-family: var(--ui);
+  overflow: hidden;
   opacity: 0;
 }
-.py-root.show {
-  opacity: 1;
-  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
+.py-root.show { opacity: 1; transition: opacity 0.3s ease; }
 .py-root.dragging { cursor: col-resize; user-select: none; }
+.py-root *,
+.py-root *::before,
+.py-root *::after { box-sizing: border-box; }
 
-/* Subtle ambient gradients */
-.py-root::before,
-.py-root::after {
-  content: '';
-  position: fixed;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 0;
-  filter: blur(120px);
-}
-.py-root::before {
-  width: 800px; height: 800px;
-  top: -300px; left: -200px;
-  background: radial-gradient(circle, rgba(99,102,241,0.08), transparent 70%);
-}
-.py-root::after {
-  width: 600px; height: 600px;
-  bottom: -200px; right: -100px;
-  background: radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%);
+.py-root[data-theme="light"] {
+  --bg: #eef1f6;
+  --pane: #ffffff;
+  --pane-2: #f6f8fc;
+  --raised: #ffffff;
+  --line: rgba(15, 23, 42, 0.16);
+  --line-2: rgba(15, 23, 42, 0.1);
+
+  --ink: #1e293b;
+  --ink-2: rgba(30, 41, 59, 0.7);
+  --ink-3: rgba(30, 41, 59, 0.68);
+
+  --accent: #5b5bd6;
+  --accent-2: #6d5bd0;
+  --green: #15803d;
+  --pink: #db2777;
+  --amber: #b45309;
+  --red: #dc2626;
+  --amber-ink: #fff7e6;
+
+  --t-kw: #cf222e;
+  --t-str: #0a7c46;
+  --t-num: #0550ae;
+  --t-comment: #6e7781;
+  --t-builtin: #8250df;
+  --t-fn: #6639ba;
+  --t-cls: #953800;
+  --t-self: #cf222e;
+
+  /* the same markers, darkened so they read on white */
+  --mark-prev: rgba(22, 163, 74, 0.15);
+  --mark-cur: rgba(219, 39, 119, 0.13);
+  --mark-err: rgba(220, 38, 38, 0.12);
+  --err-wave: rgba(220, 38, 38, 0.8);
+  --err-halo: rgba(220, 38, 38, 0.16);
+  --str-ink: #0a7c46;
+  --link-ink: rgba(30, 41, 59, 0.62);
+
+  /* white cards on a white pane have no edge — tint them the way Python
+     Tutor does, frames cool and objects warm, with borders you can see */
+  --frame-bg: #eaf1fb;
+  --frame-line: #a9c2e0;
+  --card-bg: #fffdf2;
+  --card-line: #d9cfa6;
+  --cell-line: #cdc296;
+  --cell-head: rgba(120, 105, 40, 0.07);
 }
 
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- Header ---------- */
+/* ---------------- header ---------------- */
 .py-header {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  background: rgba(255, 255, 255, 0.78);
-  border-bottom: 1px solid var(--glass-border);
-}
-.py-header-inner {
-  padding: 12px 20px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--pane);
+  border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; }
-.brand-name {
-  font-weight: 800;
-  font-size: 17px;
-  letter-spacing: -0.3px;
-  background: linear-gradient(135deg, var(--accent-dim), var(--cyan));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  white-space: nowrap;
-}
-
-.header-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--ink-muted);
-  white-space: nowrap;
-  min-width: 0;
-  overflow: hidden;
-}
-.kbd-hints { display: inline-flex; align-items: center; gap: 6px; }
-.header-hint kbd {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--glass-border);
-  border-bottom-width: 2px;
-  background: var(--bg-elevated);
-  color: var(--ink-secondary);
-}
-.hint-sep {
-  width: 1px; height: 14px;
-  background: var(--glass-border);
-  margin: 0 6px;
-}
-
-.py-nav { display: flex; align-items: center; }
-.py-nav .nav-btn {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--bg-elevated);
-  color: var(--ink-secondary);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  box-shadow: var(--shadow-sm);
-  white-space: nowrap;
-}
-.py-nav .nav-btn:hover {
-  color: var(--ink);
-  border-color: var(--glass-border-hover);
-  box-shadow: var(--shadow-md);
-}
-
-/* ---------- Main Layout ---------- */
-.py-main {
-  position: relative;
-  z-index: 1;
-  margin: 14px 0 20px;
-  padding: 0 16px 20px;
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   display: grid;
-  grid-template-columns: var(--editor-panel-width, 440px) 14px minmax(0, 1fr);
-  align-items: start;
-  gap: 0;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
 }
-
-/* ---------- Splitter ---------- */
-.splitter {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: col-resize;
-  touch-action: none;
-}
-.splitter-grip {
-  width: 4px;
-  height: 46px;
-  border-radius: var(--radius-pill);
-  background: var(--ink-faint);
-  opacity: 0.6;
-  transition: background 0.15s ease, opacity 0.15s ease, height 0.15s ease;
-}
-.splitter:hover .splitter-grip,
-.py-root.dragging .splitter-grip {
-  background: var(--accent);
-  opacity: 1;
-  height: 70px;
-}
-
-/* ---------- Panels ---------- */
-.panel {
-  background: var(--glass);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.panel-header {
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--glass-border);
-  background: rgba(255,255,255,0.55);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-}
-.panel-title {
+.brand-mark svg { width: 17px; height: 17px; }
+.brand-name {
   font-size: 14px;
   font-weight: 700;
-  color: var(--ink);
   letter-spacing: -0.2px;
-  margin: 0;
-}
-.panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* ---------- Status Badges ---------- */
-.status .badge {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   white-space: nowrap;
 }
-.badge .status-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.badge.loading {
-  background: rgba(245,158,11,0.1);
-  color: #b45309;
-  border: 1px solid rgba(245,158,11,0.2);
-}
-.badge.loading .status-dot {
-  background: var(--warn);
-  animation: dot-pulse 1.4s ease-in-out infinite;
-}
-.badge.ok {
-  background: rgba(34,197,94,0.1);
-  color: #15803d;
-  border: 1px solid rgba(34,197,94,0.2);
-}
-.badge.ok .status-dot { background: var(--ok); }
-.badge.error {
-  background: rgba(239,68,68,0.08);
-  color: var(--err);
-  border: 1px solid rgba(239,68,68,0.2);
-}
-.badge.error .status-dot { background: var(--err); }
-@keyframes dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
-}
 
-.meta {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  border: 1px solid var(--glass-border);
-  color: var(--ink-muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.meta .meta-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--ink-faint);
-  flex-shrink: 0;
-}
-.meta.ok {
-  background: rgba(34,197,94,0.1);
-  color: #15803d;
-  border-color: rgba(34,197,94,0.2);
-}
-.meta.ok .meta-dot { background: var(--ok); }
-
-/* ---------- Editor Area ---------- */
-.editor-wrap { padding: 14px 14px 0; }
-.editor-toolbar {
+.header-right {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
-.tool-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.tool-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-muted);
-}
-.tool-select {
-  padding: 6px 10px;
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--ink-secondary);
-  font-size: 12px;
-  font-family: var(--font-ui);
-  outline: none;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-.tool-select:hover,
-.tool-select:focus { border-color: var(--glass-border-hover); }
-.tool-range { width: 92px; accent-color: var(--accent); height: 4px; }
-.tool-value {
-  font-size: 11px;
+.example-select,
+.home-link,
+.icon-btn {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--pane-2);
+  color: var(--ink-2);
+  font-family: var(--ui);
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--ink-muted);
-  width: 34px;
-  text-align: right;
-  font-family: var(--font-mono);
 }
-.tool-checkbox {
+.example-select { padding: 0 8px; cursor: pointer; max-width: 190px; }
+.example-select option { background: var(--pane); color: var(--ink); }
+.home-link {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-muted);
-  cursor: pointer;
+  padding: 0 12px;
+  text-decoration: none;
 }
-.tool-checkbox input[type="checkbox"] { accent-color: var(--accent); }
-.tool-spacer { flex: 1; }
+.home-link.ghost { background: transparent; color: var(--ink-3); }
+.home-link:hover,
+.example-select:hover,
+.icon-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+.icon-btn {
+  width: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.icon-btn svg { width: 16px; height: 16px; }
 
-/* Mini icon buttons */
-.mini-btn {
-  box-sizing: border-box;
+.wrap-toggle {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-border);
-  background: var(--bg-elevated);
-  color: var(--ink-secondary);
   font-size: 12px;
-  font-weight: 600;
-  font-family: var(--font-ui);
+  color: var(--ink-3);
   cursor: pointer;
-  transition: all 0.15s ease;
-  position: relative;
-  overflow: hidden;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
-.mini-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
-.mini-btn:hover:not(:disabled) {
-  color: var(--ink);
-  background: var(--bg-surface-hover);
-  border-color: var(--glass-border-hover);
-  box-shadow: var(--shadow-sm);
-}
-.mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.mini-btn.danger { color: var(--err); border-color: rgba(239,68,68,0.18); }
-.mini-btn.danger:hover:not(:disabled) {
-  background: rgba(239,68,68,0.06);
-  border-color: rgba(239,68,68,0.3);
-  color: var(--err);
+.wrap-toggle input { accent-color: var(--accent); width: 14px; height: 14px; }
+.font-range { width: 74px; accent-color: var(--accent); height: 3px; cursor: pointer; }
+
+/* ---------------- main ---------------- */
+.py-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--code-width, 520px) 10px minmax(0, 1fr);
+  gap: 0;
+  padding: 10px;
 }
 
-/* ---------- Editor Shell ---------- */
+.left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane {
+  background: var(--pane);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.code-pane { flex: 3 1 0; min-height: 200px; }
+.out-pane { flex: 2 1 0; min-height: 170px; }
+
+.code-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pane-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--pane-2);
+}
+.pane-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pane-note,
+.state { font-size: 11.5px; color: var(--ink-3); }
+.state.ok { color: var(--green); }
+.state.bad { color: var(--red); }
+
+/* ---------------- editor ---------------- */
 .editor-shell {
-  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: stretch;
-  /* the height is set from the code's own height — see measure() */
-  min-height: 300px;
-  height: 300px;
-  width: 100%;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--glass-border);
-  background: var(--bg-elevated);
-  box-sizing: border-box;
+  background: var(--pane);
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), var(--shadow-sm);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.editor-shell:focus-within {
-  border-color: rgba(99,102,241,0.35);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
-}
-
 .editor-gutter {
-  padding: 14px 4px 14px 6px;
-  background: rgba(0,0,0,0.015);
-  color: var(--ink-muted);
-  border-right: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  padding: 12px 6px 12px 0;
+  overflow: hidden;
   text-align: right;
   user-select: none;
-  overflow: hidden;
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: inherit;
+  font-family: var(--mono);
   line-height: 1.6;
+  color: var(--ink-3);
+  background: var(--pane);
+  border-right: 1px solid var(--line-2);
 }
 .gut-line {
+  position: relative;
   min-height: 1.6em;
   line-height: 1.6em;
-  padding: 0 6px 0 21px; /* left lane holds the current/previous line arrows */
+  padding: 0 6px 0 21px; /* left lane holds the arrows */
+}
+.gut-line.is-prev { color: var(--green); font-weight: 700; }
+.gut-line.is-cur { color: var(--pink); font-weight: 700; }
+.gut-line.is-error { color: var(--red); font-weight: 700; }
+
+/* one arrow shape, tinted from a token: a mask lets the colour follow the
+   theme, which a fill baked into the data URI cannot do */
+.gut-line.is-prev::before,
+.gut-line.is-cur::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 17px;
+  height: 13px;
+  margin-top: -7px;
+  -webkit-mask: var(--arrow-shape) no-repeat left center / 17px 13px;
+  mask: var(--arrow-shape) no-repeat left center / 17px 13px;
+}
+.gut-line.is-prev::before { background-color: var(--green); }
+.gut-line.is-cur::before {
+  background-color: var(--pink);
+  animation: nudge 1.6s ease-in-out infinite;
+}
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(2px); }
+}
+.gut-line.is-error::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 3px var(--err-halo);
 }
 
-/* The textarea keeps the caret and selection but paints no text — the
-   highlight layer underneath draws it, so the two must line up exactly. */
-.editor-shell .editor,
-.editor-highlight {
-  padding: 14px 16px;
-  font-family: var(--font-mono);
-  font-size: inherit;
-  line-height: 1.6;
-  tab-size: 4;
-  box-sizing: border-box;
-}
-/* holds the two layers so they share exactly the same box */
 .editor-code {
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
+}
+.editor-shell .editor,
+.editor-highlight {
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: inherit;
+  line-height: 1.6;
+  tab-size: 4;
 }
 .editor-shell .editor {
   position: absolute;
@@ -464,16 +353,15 @@
   width: 100%;
   height: 100%;
   resize: none;
-  border: none !important;
-  background: transparent !important;
-  border-radius: 0 !important;
+  border: none;
+  background: transparent;
   color: transparent;
-  caret-color: var(--accent);
+  caret-color: var(--accent-2);
   outline: none;
   overflow: auto;
 }
-.editor-shell .editor::placeholder { color: var(--ink-faint); }
-.editor-shell .editor::selection { background: rgba(99,102,241,0.24); }
+.editor-shell .editor::placeholder { color: var(--ink-3); }
+.editor-shell .editor::selection { background: rgba(124, 124, 240, 0.35); }
 .editor-shell .editor.wrap { white-space: pre-wrap; overflow-wrap: break-word; overflow-x: hidden; }
 .editor-shell .editor:not(.wrap) { white-space: pre; }
 
@@ -491,588 +379,389 @@
 }
 .editor-highlight.wrap { white-space: pre-wrap; overflow-wrap: break-word; }
 .hl-line { min-height: 1.6em; }
-
-/* Line the tracer is pointing at. The tint is drawn with a box-shadow so it
-   bleeds into the editor padding instead of stopping at the text box. */
 .hl-line.is-prev,
-.hl-line.is-cur {
-  border-radius: 3px;
-  background: var(--line-mark);
-  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
-}
-.hl-line.is-prev  { --line-mark: rgba(34,197,94,0.16); }
-.hl-line.is-cur   { --line-mark: rgba(99,102,241,0.18); }
+.hl-line.is-cur,
 .hl-line.is-error {
-  --line-mark: rgba(239,68,68,0.16);
   border-radius: 3px;
-  background: var(--line-mark);
-  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
-  text-decoration: underline wavy rgba(239,68,68,0.75);
+  background: var(--mark);
+  box-shadow: -14px 0 0 0 var(--mark), 14px 0 0 0 var(--mark);
+}
+.hl-line.is-prev { --mark: var(--mark-prev); }
+.hl-line.is-cur { --mark: var(--mark-cur); }
+.hl-line.is-error {
+  --mark: var(--mark-err);
+  text-decoration: underline wavy var(--err-wave);
   text-underline-offset: 3px;
 }
 
-.gut-line { position: relative; }
-.gut-line.is-prev,
-.gut-line.is-cur {
-  font-weight: 700;
-}
-.gut-line.is-prev { color: #15803d; }
-.gut-line.is-cur { color: var(--accent-dim); }
-.gut-line.is-error { color: var(--err); font-weight: 700; }
-.gut-line.is-error::before {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 50%;
-  width: 11px;
-  height: 11px;
-  margin-top: -5.5px;
-  border-radius: 50%;
-  background: var(--err);
-  box-shadow: 0 0 0 3px rgba(239,68,68,0.18);
+.editor-shell .editor::-webkit-scrollbar,
+.stdout::-webkit-scrollbar,
+.tv-panes::-webkit-scrollbar { width: 9px; height: 9px; }
+.editor-shell .editor::-webkit-scrollbar-thumb,
+.stdout::-webkit-scrollbar-thumb,
+.tv-panes::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 5px;
 }
 
-/* arrows pointing at the two lines the tracer cares about */
-.gut-line.is-prev::before,
-.gut-line.is-cur::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 17px;
-  height: 13px;
-  margin-top: -7px;
-  background-repeat: no-repeat;
-  background-position: left center;
-  background-size: 17px 13px;
-}
-.gut-line.is-prev::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%2322c55e'/%3E%3C/svg%3E");
-}
-.gut-line.is-cur::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%234f46e5'/%3E%3C/svg%3E");
-  animation: arrow-nudge 1.6s ease-in-out infinite;
-}
-@keyframes arrow-nudge {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(2px); }
-}
+/* syntax colours */
+.t-kw { color: var(--t-kw); }
+.t-str { color: var(--t-str); }
+.t-comment { color: var(--t-comment); font-style: italic; }
+.t-num { color: var(--t-num); }
+.t-builtin { color: var(--t-builtin); }
+.t-fn { color: var(--t-fn); }
+.t-fn-def { color: var(--t-fn); font-weight: 600; }
+.t-cls { color: var(--t-cls); font-weight: 600; }
+.t-decorator { color: var(--t-cls); }
+.t-self { color: var(--t-self); font-style: italic; }
+.t-attr { color: var(--ink); }
 
-.line-legend { display: inline-flex; align-items: center; gap: 5px; }
-.line-legend .swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  display: inline-block;
-}
-.line-legend .swatch + .swatch { margin-left: 10px; }
-.line-legend .swatch.prev { background: rgba(34,197,94,0.5); }
-.line-legend .swatch.cur { background: rgba(99,102,241,0.55); }
-.line-legend .swatch.err { background: rgba(239,68,68,0.55); }
-
-/* Syntax colours */
-.t-kw        { color: #cf222e; }
-.t-str       { color: #0a3069; }
-.t-comment   { color: #6e7781; font-style: italic; }
-.t-num       { color: #0550ae; }
-.t-builtin   { color: #8250df; }
-.t-fn        { color: #6639ba; }
-.t-fn-def    { color: #6639ba; font-weight: 600; }
-.t-cls       { color: #953800; font-weight: 600; }
-.t-decorator { color: #953800; }
-.t-self      { color: #cf222e; font-style: italic; }
-.t-attr      { color: #1f2937; }
-
-
-/* Scrollbar */
-.editor-shell .editor::-webkit-scrollbar { width: 8px; height: 8px; }
-.editor-shell .editor::-webkit-scrollbar-track { background: transparent; }
-.editor-shell .editor::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
-.editor-shell .editor::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
-
-.editor-foot {
+/* ---------------- legend + run row ---------------- */
+.legend {
+  flex-shrink: 0;
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 2px 0;
-  font-size: 11px;
-  color: var(--ink-muted);
-}
-
-/* ---------- Controls ---------- */
-.controls {
-  padding: 12px 16px 16px;
-  display: flex;
-  gap: 10px;
   align-items: center;
-  justify-content: center;
+  gap: 16px;
   flex-wrap: wrap;
-}
-/* hint shown while the program waits for input in the trace panel */
-.waiting-input {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   padding: 7px 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid rgba(99,102,241,0.3);
-  background: rgba(99,102,241,0.06);
-  color: var(--accent-dim);
-  font-size: 12px;
-  font-weight: 600;
+  border-top: 1px solid var(--line-2);
+  font-size: 11.5px;
+  color: var(--ink-3);
 }
-.waiting-input::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: dot-pulse 1.4s ease-in-out infinite;
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.legend-item i {
+  width: 13px;
+  height: 10px;
+  border-radius: 1px;
+  background: currentColor;
+  clip-path: polygon(0 33%, 52% 33%, 52% 5%, 100% 50%, 52% 95%, 52% 67%, 0 67%);
 }
+.legend-item.prev { color: var(--green); }
+.legend-item.cur { color: var(--pink); }
+.legend-item.err { color: var(--red); }
+.legend-item.err i { clip-path: circle(40%); }
 
-/* ---------- Buttons ---------- */
-.btn {
-  box-sizing: border-box;
+.run-row {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--pane-2);
+}
+.run-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--bg-elevated);
-  cursor: pointer;
-  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  font-family: var(--ui);
   font-size: 13px;
-  font-family: var(--font-ui);
-  color: var(--ink);
-  transition: all 0.18s ease;
-  box-shadow: var(--shadow-sm);
+  font-weight: 700;
+  cursor: pointer;
   position: relative;
   overflow: hidden;
+  transition: filter 0.15s;
 }
-.btn:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
-  border-color: var(--glass-border-hover);
-  box-shadow: var(--shadow-md);
-}
-.btn:active:not(:disabled) { transform: scale(0.98); }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
-
-.btn.primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-  color: #fff;
-  border: none;
-  box-shadow: 0 4px 16px var(--accent-glow);
-}
-.btn.primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--accent-bright), var(--accent));
-  box-shadow: 0 8px 28px rgba(99,102,241,0.25);
-}
-.btn.compact { padding: 6px 14px; font-size: 12px; border-radius: var(--radius-sm); }
-.btn.primary.busy::after {
+.run-btn svg { width: 15px; height: 15px; }
+.run-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.run-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.run-btn.busy::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
   transform: translateX(-100%);
   animation: shimmer 1.2s linear infinite;
 }
-.btn.attention { border-color: rgba(99,102,241,0.35); }
-
-/* Ripple */
-.btn .ripple,
-.mini-btn .ripple {
-  position: absolute;
-  border-radius: 9999px;
-  pointer-events: none;
-  background: radial-gradient(closest-side, rgba(255,255,255,0.45), transparent 70%);
-  transform: scale(0);
-  opacity: 0.6;
-  animation: ripple 0.6s ease-out forwards;
-}
-.mini-btn .ripple { background: radial-gradient(closest-side, rgba(99,102,241,0.25), transparent 70%); }
-@keyframes ripple { to { transform: scale(3.2); opacity: 0; } }
 @keyframes shimmer { to { transform: translateX(100%); } }
 
-/* ---------- Callout / Errors ---------- */
-.callout {
-  margin: 0 16px 16px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--glass-border);
-  background: var(--bg-elevated);
+.run-row kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: var(--raised);
+  color: var(--ink-3);
 }
-.callout.error {
-  border-color: rgba(239,68,68,0.25);
-  background: rgba(239,68,68,0.04);
+.ghost-btn {
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
 }
-.callout-title {
-  font-weight: 800;
+.ghost-btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+.ghost-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.steps-note { margin-left: auto; font-size: 11.5px; color: var(--ink-3); }
+
+.error-note {
+  flex-shrink: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--err-halo);
+  background: var(--mark-err);
+  color: var(--red);
+  font-family: var(--mono);
   font-size: 12px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-  color: var(--err);
-}
-.callout-body {
-  font-size: 13px;
-  color: var(--ink-secondary);
-  font-family: var(--font-mono);
   line-height: 1.5;
   white-space: pre-wrap;
-  word-break: break-word;
 }
 
-/* ---------- Visualization panel ---------- */
-/* starts as tall as the editor panel, then grows if the trace needs more */
-.viz-panel {
-  position: relative;
-  align-self: stretch;
-}
-.viz-body {
-  position: relative;
-  padding: 14px;
-  overflow: auto; /* a wide heap scrolls sideways in here */
+/* ---------------- stdout ---------------- */
+.stdout {
   flex: 1;
-  min-height: 0;
-}
-.viz-body #opt-viz { min-height: 0; width: 100%; position: relative; }
-
-/* Fullscreen: the whole workspace fills the viewport. The editor has to stay
-   on screen — it is the only place the code is shown. */
-.py-root.expanded .py-main {
-  position: fixed;
-  inset: 0;
-  z-index: 70; /* above the sticky header */
+  min-height: 60px;
   margin: 0;
-  padding: 10px;
-  height: 100svh;
-  box-sizing: border-box;
-  align-items: stretch;
-  overflow: hidden;
-  background: var(--bg-base);
+  padding: 10px 12px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre;
 }
-.py-root.expanded .panel {
-  height: 100%;
-  min-height: 0;
+
+/* ---------------- splitter ---------------- */
+.splitter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
 }
-.py-root.expanded .editor-wrap {
-  flex: 1;
+.splitter span {
+  width: 3px;
+  height: 42px;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background 0.15s, height 0.15s;
+}
+.splitter:hover span,
+.py-root.dragging .splitter span { background: var(--accent); height: 68px; }
+
+/* ---------------- canvas ---------------- */
+.canvas-pane {
+  position: relative; /* the input prompt pops up inside this */
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--pane);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
 }
-/* in fullscreen the panel is a fixed height, so the editor fills it and
-   scrolls internally rather than growing (beats the inline height) */
-.py-root.expanded .editor-shell {
-  flex: 1 1 0;
-  height: auto !important;
-  min-height: 0;
-}
-.py-root.expanded .viz-body {
+.canvas-empty {
   flex: 1;
-  min-height: 0;
-  max-height: none;
-}
-
-/* ---------- Empty state ---------- */
-.empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 320px;
-  color: var(--ink-muted);
+  color: var(--ink-3);
   text-align: center;
 }
-.empty svg { width: 40px; height: 40px; opacity: 0.4; margin-bottom: 4px; }
-.empty p { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink-secondary); }
-.empty span { font-size: 12px; }
+.canvas-empty svg { width: 38px; height: 38px; opacity: 0.5; }
+.canvas-empty p { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.canvas-empty span { font-size: 12px; }
 
-/* ---------- Responsive ----------
-   Python Tutor's diagram has its own intrinsic width, so on small screens it
-   stays wide and scrolls sideways inside .viz-body rather than being squashed;
-   everything around it reflows. */
+/* ---------------- input prompt ----------------
+   pops up over the canvas, on the same warm surface as the objects */
+.input-pop {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  width: min(430px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--card-line);
+  background: var(--card-bg);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.42);
+  animation: pop-in 0.18s ease-out;
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.98); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+.input-pop-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.input-pop-prompt {
+  margin: 2px 0 10px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  color: var(--ink);
+  word-break: break-word;
+}
+.input-pop-row { display: flex; gap: 8px; }
+.input-box {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--cell-line);
+  background: var(--pane);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+}
+.input-box:focus { border-color: var(--amber); }
+.send-btn {
+  min-height: 36px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--amber);
+  color: var(--amber-ink);
+  font-family: var(--ui);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.send-btn:hover { filter: brightness(1.08); }
 
-/* Tablet and below: a single column */
+/* ---------------- step bar ---------------- */
+.stepbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-areas:
+    "slider slider slider"
+    "spacer buttons status";
+  align-items: center;
+  gap: 8px 14px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--pane);
+}
+.stepbar-buttons {
+  grid-area: buttons;
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stepbar-buttons button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--pane-2);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.stepbar-buttons button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+.stepbar-buttons button:disabled { opacity: 0.35; cursor: not-allowed; }
+.stepbar-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+.stepbar-count b { color: var(--ink); }
+.stepbar-slider {
+  grid-area: slider;
+  width: 100%;
+  min-width: 100px;
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+.stepbar-slider:disabled { opacity: 0.4; cursor: not-allowed; }
+.stepbar-status {
+  grid-area: status;
+  justify-self: end;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  max-width: 34vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stepbar-status.done { color: var(--amber); }
+.stepbar-status.bad { color: var(--red); }
+
+/* ---------------- responsive ---------------- */
 @media (max-width: 1000px) {
+  .py-root { height: auto; min-height: 100svh; overflow: visible; }
   .py-main {
     grid-template-columns: minmax(0, 1fr);
-    padding: 0 12px 16px;
-    gap: 14px;
+    gap: 10px;
   }
   .splitter { display: none; }
-  /* no keyboard on these, so drop the shortcut hints and their divider */
-  .kbd-hints,
-  .header-hint > .hint-sep { display: none; }
-
-  /* fullscreen stacks both panels and scrolls, instead of clipping the second */
-  .py-root.expanded .py-main {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .py-root.expanded .panel { height: auto; }
-  .py-root.expanded .editor-wrap { display: block; }
-  .py-root.expanded .editor-shell { flex: none; }
-  .py-root.expanded .viz-body { flex: none; }
-
-  /* Python Tutor sizes the output box in px and wraps it in a resizable div */
-  #opt-viz #progOutputs,
-  #opt-viz .ui-wrapper {
-    width: 100% !important;
-    max-width: 100% !important;
-    box-sizing: border-box;
-  }
-  #opt-viz #pyStdout,
-  #opt-viz #pyOutputPane textarea {
-    width: 100% !important;
-    box-sizing: border-box;
-  }
-  /* the output sits in the same wide row as the heap, so cap it to the screen */
-  #opt-viz #progOutputs,
-  #opt-viz .ui-wrapper,
-  #opt-viz #pyStdout {
-    max-width: calc(100vw - 44px) !important;
-  }
-  #opt-viz .ui-resizable-handle { display: none !important; }
+  .code-pane { min-height: 46svh; }
+  .out-pane { max-height: none; }
+  .stdout { max-height: 180px; }
+  .canvas-pane { min-height: 60svh; }
+  .stepbar { position: sticky; bottom: 0; z-index: 5; }
 }
 
-/* Phone */
 @media (max-width: 640px) {
-  .py-header-inner {
-    padding: 10px 12px;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-content: center;
+  /* one header row: the example picker takes the slack */
+  .py-header { padding: 8px 10px; flex-wrap: nowrap; }
+  .brand-name { display: none; }
+  .header-right { gap: 6px; flex-wrap: nowrap; min-width: 0; flex: 1; }
+  .example-select { flex: 1; min-width: 0; max-width: none; }
+  .font-range,
+  .wrap-toggle { display: none; }
+
+  .py-main { padding: 8px; }
+  .run-row { padding: 8px 10px; }
+  .run-row kbd { display: none; }
+  .steps-note { margin-left: auto; }
+
+  .stepbar {
+    gap: 6px;
+    padding: 8px 10px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "slider" "buttons" "status";
+    justify-items: center;
   }
-  /* wrapped flex lines stretch by default — keep each row its own height */
-  .brand,
-  .header-hint,
-  .py-nav { align-self: center; }
-  .brand-name { font-size: 15px; }
-  .header-hint {
-    order: 3;
-    width: 100%;
-    overflow: visible;
-    white-space: normal;
-    font-size: 11px;
-  }
-  .line-legend { flex-wrap: wrap; row-gap: 4px; }
-
-  .py-main { padding: 0 8px 14px; gap: 12px; }
-  .panel { border-radius: var(--radius-lg); }
-  .panel-header { padding: 10px 12px; }
-  .panel-title { font-size: 13px; }
-  .editor-wrap { padding: 10px 10px 0; }
-  .controls { padding: 10px 12px 14px; }
-  .callout { margin: 0 12px 12px; }
-  .viz-body { padding: 10px; }
-
-  /* touch-sized controls */
-  .mini-btn { padding: 10px 12px; }
-  .controls .btn { padding: 12px 22px; }
-  .py-nav .nav-btn { padding: 10px 14px; }
-  .tool-select { padding: 8px 10px; }
-  .tool-range { width: 76px; }
-
-  /* keep Run within reach: the editor stops growing and scrolls instead */
-  .editor-shell { max-height: 55svh; }
-
-  .editor-foot { font-size: 10px; }
-  .empty { min-height: 200px; }
-  .empty svg { width: 32px; height: 32px; }
+  .stepbar-buttons { justify-content: center; gap: 4px; flex-wrap: wrap; }
+  .stepbar-buttons button { padding: 5px 9px; font-size: 11px; }
+  .stepbar-count { font-size: 11px; padding: 0; }
+  .stepbar-status { justify-self: center; font-size: 11px; max-width: 100%; }
 }
 
-/* Coarse pointers: give every control a real tap target */
 @media (pointer: coarse) {
-  .mini-btn,
-  .py-nav .nav-btn,
-  #opt-viz #vcrControls button {
-    min-height: 40px;
-  }
-  .controls .btn { min-height: 44px; }
-  #opt-viz .ui-slider .ui-slider-handle {
-    width: 22px !important;
-    height: 22px !important;
-    top: -9px !important;
-  }
+  .stepbar-buttons button,
+  .example-select,
+  .home-link,
+  .icon-btn { min-height: 40px; }
+  .icon-btn { width: 40px; }
+  .run-btn { min-height: 44px; }
 }
-
-/* ==========================================================
-   Python Tutor — theme overrides
-   ========================================================== */
-
-#opt-viz { color: var(--ink); }
-
-/* Only one code box on the page: the editor. Everything Python Tutor draws
-   that duplicates or refers to its own copy of the code is dropped. */
-#opt-viz #pyCodeOutputDiv,
-#opt-viz #legendDiv,
-#opt-viz #executionSliderDocs,
-#opt-viz #langDisplayDiv,
-#opt-viz #editCodeLinkDiv,
-#opt-viz #annotateLinkDiv,
-#opt-viz #vizHeader {
-  display: none !important;
-}
-
-/* verticalStack: stepper on top, output and data view underneath.
-   A wide heap makes the shared table thousands of pixels wide, so the stepper
-   is pinned to the left and given the visible width in JS (see redraw()). */
-#opt-viz table.visualizer { width: 100% !important; }
-#opt-viz td.vizLayoutTd { vertical-align: top !important; }
-#opt-viz #vizLayoutTdSecond { padding-top: 6px !important; }
-#opt-viz #codeDisplayDiv {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  box-sizing: border-box;
-  padding-right: 10px;
-  background: var(--bg-elevated);
-}
-#opt-viz #executionSlider { max-width: 100%; }
-
-/* Print output pane */
-#opt-viz #progOutputs { margin-left: 0 !important; }
-#opt-viz #printOutputDocs {
-  color: var(--ink-muted) !important;
-  font-size: 11px !important;
-}
-#opt-viz #pyStdout,
-#opt-viz #pyOutputPane textarea {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-sm) !important;
-  background: #fbfcfe !important;
-  padding: 8px !important;
-  font-family: var(--font-mono) !important;
-  font-size: 12.5px !important;
-  color: var(--ink) !important;
-}
-
-/* Data visualization area (frames + objects) */
-#opt-viz #dataViz {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-md) !important;
-  padding: 8px !important;
-}
-
-/* Frames & Objects headers */
-#opt-viz #stackHeader,
-#opt-viz #heapHeader,
-#opt-viz .vizHeaderLabel {
-  font-family: var(--font-ui) !important;
-  font-weight: 700 !important;
-  font-size: 13px !important;
-  color: var(--ink-secondary) !important;
-}
-
-/* Frame boxes */
-#opt-viz .stackFrame {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-sm) !important;
-  margin-bottom: 6px !important;
-}
-#opt-viz .stackFrameHeader { font-weight: 700 !important; }
-
-/* Step controls */
-#opt-viz #vcrControls {
-  border: none !important;
-  padding: 10px 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  flex-wrap: wrap !important;
-}
-#opt-viz #vcrControls button {
-  background: var(--bg-elevated) !important;
-  color: var(--ink) !important;
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-sm) !important;
-  padding: 7px 14px !important;
-  font-family: var(--font-ui) !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: all 0.15s ease !important;
-}
-#opt-viz #vcrControls button:hover:not([disabled]) {
-  border-color: var(--accent) !important;
-  color: var(--accent-dim) !important;
-  box-shadow: var(--shadow-sm) !important;
-}
-#opt-viz #vcrControls button[disabled] {
-  opacity: 0.4 !important;
-  cursor: not-allowed !important;
-}
-
-/* Step counter text */
-#opt-viz #vcrControls #curInstr,
-#opt-viz #vcrControls span {
-  color: var(--ink-secondary) !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  font-family: var(--font-mono) !important;
-}
-
-/* raw_input row rendered by Python Tutor */
-#opt-viz #rawUserInputDiv {
-  margin-top: 8px !important;
-  padding: 10px 12px !important;
-  border: 1px solid rgba(99,102,241,0.3) !important;
-  border-radius: var(--radius-md) !important;
-  background: rgba(99,102,241,0.05) !important;
-}
-#opt-viz #raw_input_textbox {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-sm) !important;
-  padding: 6px 10px !important;
-  font-family: var(--font-mono) !important;
-  font-size: 13px !important;
-}
-#opt-viz #raw_input_submit_btn {
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-sm) !important;
-  padding: 6px 14px !important;
-  background: var(--bg-elevated) !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-}
-
-/* error text from the tracer */
-#opt-viz #errorOutput {
-  color: var(--err) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 12px !important;
-}
-
-/* jQuery UI slider */
-#opt-viz .ui-slider {
-  background: rgba(0,0,0,0.06) !important;
-  border: 1px solid var(--glass-border) !important;
-  border-radius: var(--radius-pill) !important;
-  height: 6px !important;
-  margin: 10px 2px !important;
-}
-#opt-viz .ui-slider .ui-slider-handle {
-  background: var(--accent) !important;
-  border: 2px solid var(--accent-bright) !important;
-  border-radius: 50% !important;
-  width: 16px !important;
-  height: 16px !important;
-  top: -6px !important;
-  cursor: grab !important;
-  box-shadow: 0 2px 8px var(--accent-glow) !important;
-  transition: box-shadow 0.15s ease !important;
-}
-#opt-viz .ui-slider .ui-slider-handle:hover,
-#opt-viz .ui-slider .ui-slider-handle:active {
-  box-shadow: 0 2px 14px rgba(99,102,241,0.3) !important;
-}
-#opt-viz .ui-slider .ui-slider-range {
-  background: linear-gradient(90deg, var(--accent-dim), var(--accent)) !important;
-  border-radius: var(--radius-pill) !important;
-}
-
-/* Resizable handle */
-#opt-viz .ui-resizable-se { width: 14px !important; height: 14px !important; }

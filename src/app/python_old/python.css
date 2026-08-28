@@ -1,0 +1,1091 @@
+/* ============================================================
+   Python Visualizer — Light Design System
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* ---------- Design Tokens ---------- */
+.pyold-root {
+  --bg-base: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-surface: rgba(0, 0, 0, 0.025);
+  --bg-surface-hover: rgba(0, 0, 0, 0.045);
+  --glass: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-border-hover: rgba(0, 0, 0, 0.14);
+
+  --ink: #1e293b;
+  --ink-secondary: #475569;
+  --ink-muted: #94a3b8;
+  --ink-faint: #cbd5e1;
+
+  --accent: #6366f1;       /* indigo-500 */
+  --accent-bright: #818cf8;
+  --accent-dim: #4f46e5;
+  --accent-glow: rgba(99, 102, 241, 0.18);
+  --cyan: #06b6d4;
+
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --err: #ef4444;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 36px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+
+  --header-h: 64px;
+
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  font-family: var(--font-ui);
+  color: var(--ink);
+  min-height: 100svh;
+  background: var(--bg-base);
+  position: relative;
+  overflow-x: hidden;
+
+  /* entrance — opacity only: a transform here would become the containing
+     block for the fullscreen panel and shrink it by the scrollbar width */
+  opacity: 0;
+}
+.pyold-root.show {
+  opacity: 1;
+  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pyold-root.dragging { cursor: col-resize; user-select: none; }
+
+/* Subtle ambient gradients */
+.pyold-root::before,
+.pyold-root::after {
+  content: '';
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(120px);
+}
+.pyold-root::before {
+  width: 800px; height: 800px;
+  top: -300px; left: -200px;
+  background: radial-gradient(circle, rgba(99,102,241,0.08), transparent 70%);
+}
+.pyold-root::after {
+  width: 600px; height: 600px;
+  bottom: -200px; right: -100px;
+  background: radial-gradient(circle, rgba(6,182,212,0.06), transparent 70%);
+}
+
+.pyold-root .spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Header ---------- */
+.pyold-root .py-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  background: rgba(255, 255, 255, 0.78);
+  border-bottom: 1px solid var(--glass-border);
+}
+.pyold-root .py-header-inner {
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.pyold-root .brand { display: flex; align-items: center; }
+.pyold-root .brand-name {
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.3px;
+  background: linear-gradient(135deg, var(--accent-dim), var(--cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  white-space: nowrap;
+}
+
+.pyold-root .header-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.pyold-root .kbd-hints { display: inline-flex; align-items: center; gap: 6px; }
+.pyold-root .header-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--glass-border);
+  border-bottom-width: 2px;
+  background: var(--bg-elevated);
+  color: var(--ink-secondary);
+}
+.pyold-root .hint-sep {
+  width: 1px; height: 14px;
+  background: var(--glass-border);
+  margin: 0 6px;
+}
+
+.pyold-root .py-nav { display: flex; align-items: center; }
+.pyold-root .py-nav .nav-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  color: var(--ink-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  white-space: nowrap;
+}
+.pyold-root .py-nav .nav-btn:hover {
+  color: var(--ink);
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--shadow-md);
+}
+
+/* ---------- Main Layout ---------- */
+.pyold-root .py-main {
+  position: relative;
+  z-index: 1;
+  margin: 14px 0 20px;
+  padding: 0 16px 20px;
+  display: grid;
+  grid-template-columns: var(--editor-panel-width, 440px) 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 0;
+}
+
+/* ---------- Splitter ---------- */
+.pyold-root .splitter {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+.pyold-root .splitter-grip {
+  width: 4px;
+  height: 46px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-faint);
+  opacity: 0.6;
+  transition: background 0.15s ease, opacity 0.15s ease, height 0.15s ease;
+}
+.pyold-root .splitter:hover .splitter-grip,
+.pyold-root.dragging .splitter-grip {
+  background: var(--accent);
+  opacity: 1;
+  height: 70px;
+}
+
+/* ---------- Panels ---------- */
+.pyold-root .panel {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pyold-root .panel-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--glass-border);
+  background: rgba(255,255,255,0.55);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+.pyold-root .panel-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.2px;
+  margin: 0;
+}
+.pyold-root .panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Status Badges ---------- */
+.pyold-root .status .badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.pyold-root .badge .status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.pyold-root .badge.loading {
+  background: rgba(245,158,11,0.1);
+  color: #b45309;
+  border: 1px solid rgba(245,158,11,0.2);
+}
+.pyold-root .badge.loading .status-dot {
+  background: var(--warn);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.pyold-root .badge.ok {
+  background: rgba(34,197,94,0.1);
+  color: #15803d;
+  border: 1px solid rgba(34,197,94,0.2);
+}
+.pyold-root .badge.ok .status-dot { background: var(--ok); }
+.pyold-root .badge.error {
+  background: rgba(239,68,68,0.08);
+  color: var(--err);
+  border: 1px solid rgba(239,68,68,0.2);
+}
+.pyold-root .badge.error .status-dot { background: var(--err); }
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.pyold-root .meta {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  color: var(--ink-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.pyold-root .meta .meta-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+.pyold-root .meta.ok {
+  background: rgba(34,197,94,0.1);
+  color: #15803d;
+  border-color: rgba(34,197,94,0.2);
+}
+.pyold-root .meta.ok .meta-dot { background: var(--ok); }
+
+/* ---------- Editor Area ---------- */
+.pyold-root .editor-wrap { padding: 14px 14px 0; }
+.pyold-root .editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.pyold-root .tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pyold-root .tool-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+.pyold-root .tool-select {
+  padding: 6px 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.pyold-root .tool-select:hover,
+.pyold-root .tool-select:focus { border-color: var(--glass-border-hover); }
+.pyold-root .tool-range { width: 92px; accent-color: var(--accent); height: 4px; }
+.pyold-root .tool-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  width: 34px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.pyold-root .tool-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.pyold-root .tool-checkbox input[type="checkbox"] { accent-color: var(--accent); }
+.pyold-root .tool-spacer { flex: 1; }
+
+/* Mini icon buttons */
+.pyold-root .mini-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  color: var(--ink-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pyold-root .mini-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.pyold-root .mini-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--bg-surface-hover);
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--shadow-sm);
+}
+.pyold-root .mini-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pyold-root .mini-btn.danger { color: var(--err); border-color: rgba(239,68,68,0.18); }
+.pyold-root .mini-btn.danger:hover:not(:disabled) {
+  background: rgba(239,68,68,0.06);
+  border-color: rgba(239,68,68,0.3);
+  color: var(--err);
+}
+
+/* ---------- Editor Shell ---------- */
+.pyold-root .editor-shell {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  /* the height is set from the code's own height — see measure() */
+  min-height: 300px;
+  height: 300px;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  box-sizing: border-box;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.pyold-root .editor-shell:focus-within {
+  border-color: rgba(99,102,241,0.35);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.08), inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+.pyold-root .editor-gutter {
+  padding: 14px 4px 14px 6px;
+  background: rgba(0,0,0,0.015);
+  color: var(--ink-muted);
+  border-right: 1px solid var(--glass-border);
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.6;
+}
+.pyold-root .gut-line {
+  min-height: 1.6em;
+  line-height: 1.6em;
+  padding: 0 6px 0 21px; /* left lane holds the current/previous line arrows */
+}
+
+/* The textarea keeps the caret and selection but paints no text — the
+   highlight layer underneath draws it, so the two must line up exactly. */
+.pyold-root .editor-shell .editor,
+.pyold-root .editor-highlight {
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.6;
+  tab-size: 4;
+  box-sizing: border-box;
+}
+/* holds the two layers so they share exactly the same box */
+.pyold-root .editor-code {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+.pyold-root .editor-shell .editor {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  color: transparent;
+  caret-color: var(--accent);
+  outline: none;
+  overflow: auto;
+}
+.pyold-root .editor-shell .editor::placeholder { color: var(--ink-faint); }
+.pyold-root .editor-shell .editor::selection { background: rgba(99,102,241,0.24); }
+.pyold-root .editor-shell .editor.wrap { white-space: pre-wrap; overflow-wrap: break-word; overflow-x: hidden; }
+.pyold-root .editor-shell .editor:not(.wrap) { white-space: pre; }
+
+.pyold-root .editor-highlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--ink);
+  white-space: pre;
+}
+.pyold-root .editor-highlight.wrap { white-space: pre-wrap; overflow-wrap: break-word; }
+.pyold-root .hl-line { min-height: 1.6em; }
+
+/* Line the tracer is pointing at. The tint is drawn with a box-shadow so it
+   bleeds into the editor padding instead of stopping at the text box. */
+.pyold-root .hl-line.is-prev,
+.pyold-root .hl-line.is-cur {
+  border-radius: 3px;
+  background: var(--line-mark);
+  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
+}
+.pyold-root .hl-line.is-prev { --line-mark: rgba(34,197,94,0.16); }
+.pyold-root .hl-line.is-cur { --line-mark: rgba(99,102,241,0.18); }
+.pyold-root .hl-line.is-error {
+  --line-mark: rgba(239,68,68,0.16);
+  border-radius: 3px;
+  background: var(--line-mark);
+  box-shadow: -16px 0 0 0 var(--line-mark), 16px 0 0 0 var(--line-mark);
+  text-decoration: underline wavy rgba(239,68,68,0.75);
+  text-underline-offset: 3px;
+}
+
+.pyold-root .gut-line { position: relative; }
+.pyold-root .gut-line.is-prev,
+.pyold-root .gut-line.is-cur {
+  font-weight: 700;
+}
+.pyold-root .gut-line.is-prev { color: #15803d; }
+.pyold-root .gut-line.is-cur { color: var(--accent-dim); }
+.pyold-root .gut-line.is-error { color: var(--err); font-weight: 700; }
+.pyold-root .gut-line.is-error::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--err);
+  box-shadow: 0 0 0 3px rgba(239,68,68,0.18);
+}
+
+/* arrows pointing at the two lines the tracer cares about */
+.pyold-root .gut-line.is-prev::before,
+.pyold-root .gut-line.is-cur::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 17px;
+  height: 13px;
+  margin-top: -7px;
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: 17px 13px;
+}
+.pyold-root .gut-line.is-prev::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%2322c55e'/%3E%3C/svg%3E");
+}
+.pyold-root .gut-line.is-cur::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 17 13'%3E%3Cpath d='M0 4.6h8.4V0.8L16.4 6.5 8.4 12.2V8.4H0z' fill='%234f46e5'/%3E%3C/svg%3E");
+  animation: arrow-nudge 1.6s ease-in-out infinite;
+}
+@keyframes arrow-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(2px); }
+}
+
+.pyold-root .line-legend { display: inline-flex; align-items: center; gap: 5px; }
+.pyold-root .line-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.pyold-root .line-legend .swatch + .swatch { margin-left: 10px; }
+.pyold-root .line-legend .swatch.prev { background: rgba(34,197,94,0.5); }
+.pyold-root .line-legend .swatch.cur { background: rgba(99,102,241,0.55); }
+.pyold-root .line-legend .swatch.err { background: rgba(239,68,68,0.55); }
+
+/* Syntax colours */
+.pyold-root .t-kw { color: #cf222e; }
+.pyold-root .t-str { color: #0a3069; }
+.pyold-root .t-comment { color: #6e7781; font-style: italic; }
+.pyold-root .t-num { color: #0550ae; }
+.pyold-root .t-builtin { color: #8250df; }
+.pyold-root .t-fn { color: #6639ba; }
+.pyold-root .t-fn-def { color: #6639ba; font-weight: 600; }
+.pyold-root .t-cls { color: #953800; font-weight: 600; }
+.pyold-root .t-decorator { color: #953800; }
+.pyold-root .t-self { color: #cf222e; font-style: italic; }
+.pyold-root .t-attr { color: #1f2937; }
+
+
+/* Scrollbar */
+.pyold-root .editor-shell .editor::-webkit-scrollbar { width: 8px; height: 8px; }
+.pyold-root .editor-shell .editor::-webkit-scrollbar-track { background: transparent; }
+.pyold-root .editor-shell .editor::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+.pyold-root .editor-shell .editor::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
+
+.pyold-root .editor-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 2px 0;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+/* ---------- Controls ---------- */
+.pyold-root .controls {
+  padding: 12px 16px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+/* hint shown while the program waits for input in the trace panel */
+.pyold-root .waiting-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(99,102,241,0.3);
+  background: rgba(99,102,241,0.06);
+  color: var(--accent-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pyold-root .waiting-input::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+/* ---------- Buttons ---------- */
+.pyold-root .btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  transition: all 0.18s ease;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.pyold-root .btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  border-color: var(--glass-border-hover);
+  box-shadow: var(--shadow-md);
+}
+.pyold-root .btn:active:not(:disabled) { transform: scale(0.98); }
+.pyold-root .btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+
+.pyold-root .btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+  color: #fff;
+  border: none;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+.pyold-root .btn.primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--accent-bright), var(--accent));
+  box-shadow: 0 8px 28px rgba(99,102,241,0.25);
+}
+.pyold-root .btn.compact { padding: 6px 14px; font-size: 12px; border-radius: var(--radius-sm); }
+.pyold-root .btn.primary.busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.2s linear infinite;
+}
+.pyold-root .btn.attention { border-color: rgba(99,102,241,0.35); }
+
+/* Ripple */
+.pyold-root .btn .ripple,
+.pyold-root .mini-btn .ripple {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(255,255,255,0.45), transparent 70%);
+  transform: scale(0);
+  opacity: 0.6;
+  animation: ripple 0.6s ease-out forwards;
+}
+.pyold-root .mini-btn .ripple { background: radial-gradient(closest-side, rgba(99,102,241,0.25), transparent 70%); }
+@keyframes ripple { to { transform: scale(3.2); opacity: 0; } }
+@keyframes shimmer { to { transform: translateX(100%); } }
+
+/* ---------- Callout / Errors ---------- */
+.pyold-root .callout {
+  margin: 0 16px 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+}
+.pyold-root .callout.error {
+  border-color: rgba(239,68,68,0.25);
+  background: rgba(239,68,68,0.04);
+}
+.pyold-root .callout-title {
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--err);
+}
+.pyold-root .callout-body {
+  font-size: 13px;
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Visualization panel ---------- */
+/* starts as tall as the editor panel, then grows if the trace needs more */
+.pyold-root .viz-panel {
+  position: relative;
+  align-self: stretch;
+}
+.pyold-root .viz-body {
+  position: relative;
+  padding: 14px;
+  overflow: auto; /* a wide heap scrolls sideways in here */
+  flex: 1;
+  min-height: 0;
+}
+.pyold-root .viz-body #opt-viz-old { min-height: 0; width: 100%; position: relative; }
+
+/* Fullscreen: the whole workspace fills the viewport. The editor has to stay
+   on screen — it is the only place the code is shown. */
+.pyold-root.expanded .py-main {
+  position: fixed;
+  inset: 0;
+  z-index: 70; /* above the sticky header */
+  margin: 0;
+  padding: 10px;
+  height: 100svh;
+  box-sizing: border-box;
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+.pyold-root.expanded .panel {
+  height: 100%;
+  min-height: 0;
+}
+.pyold-root.expanded .editor-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* in fullscreen the panel is a fixed height, so the editor fills it and
+   scrolls internally rather than growing (beats the inline height) */
+.pyold-root.expanded .editor-shell {
+  flex: 1 1 0;
+  height: auto !important;
+  min-height: 0;
+}
+.pyold-root.expanded .viz-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+/* ---------- Empty state ---------- */
+.pyold-root .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 320px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+.pyold-root .empty svg { width: 40px; height: 40px; opacity: 0.4; margin-bottom: 4px; }
+.pyold-root .empty p { margin: 0; font-size: 14px; font-weight: 600; color: var(--ink-secondary); }
+.pyold-root .empty span { font-size: 12px; }
+
+/* ---------- Responsive ----------
+   Python Tutor's diagram has its own intrinsic width, so on small screens it
+   stays wide and scrolls sideways inside .viz-body rather than being squashed;
+   everything around it reflows. */
+
+/* Tablet and below: a single column */
+@media (max-width: 1000px) {
+  .pyold-root .py-main {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 12px 16px;
+    gap: 14px;
+  }
+  .pyold-root .splitter { display: none; }
+  /* no keyboard on these, so drop the shortcut hints and their divider */
+  .pyold-root .kbd-hints,
+.pyold-root .header-hint > .hint-sep { display: none; }
+
+  /* fullscreen stacks both panels and scrolls, instead of clipping the second */
+  .pyold-root.expanded .py-main {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pyold-root.expanded .panel { height: auto; }
+  .pyold-root.expanded .editor-wrap { display: block; }
+  .pyold-root.expanded .editor-shell { flex: none; }
+  .pyold-root.expanded .viz-body { flex: none; }
+
+  /* Python Tutor sizes the output box in px and wraps it in a resizable div */
+  .pyold-root #opt-viz-old #progOutputs,
+.pyold-root #opt-viz-old .ui-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .pyold-root #opt-viz-old #pyStdout,
+.pyold-root #opt-viz-old #pyOutputPane textarea {
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+  /* the output sits in the same wide row as the heap, so cap it to the screen */
+  .pyold-root #opt-viz-old #progOutputs,
+.pyold-root #opt-viz-old .ui-wrapper,
+.pyold-root #opt-viz-old #pyStdout {
+    max-width: calc(100vw - 44px) !important;
+  }
+  .pyold-root #opt-viz-old .ui-resizable-handle { display: none !important; }
+}
+
+/* Phone */
+@media (max-width: 640px) {
+  .pyold-root .py-header-inner {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-content: center;
+  }
+  /* wrapped flex lines stretch by default — keep each row its own height */
+  .pyold-root .brand,
+.pyold-root .header-hint,
+.pyold-root .py-nav { align-self: center; }
+  .pyold-root .brand-name { font-size: 15px; }
+  .pyold-root .header-hint {
+    order: 3;
+    width: 100%;
+    overflow: visible;
+    white-space: normal;
+    font-size: 11px;
+  }
+  .pyold-root .line-legend { flex-wrap: wrap; row-gap: 4px; }
+
+  .pyold-root .py-main { padding: 0 8px 14px; gap: 12px; }
+  .pyold-root .panel { border-radius: var(--radius-lg); }
+  .pyold-root .panel-header { padding: 10px 12px; }
+  .pyold-root .panel-title { font-size: 13px; }
+  .pyold-root .editor-wrap { padding: 10px 10px 0; }
+  .pyold-root .controls { padding: 10px 12px 14px; }
+  .pyold-root .callout { margin: 0 12px 12px; }
+  .pyold-root .viz-body { padding: 10px; }
+
+  /* touch-sized controls */
+  .pyold-root .mini-btn { padding: 10px 12px; }
+  .pyold-root .controls .btn { padding: 12px 22px; }
+  .pyold-root .py-nav .nav-btn { padding: 10px 14px; }
+  .pyold-root .tool-select { padding: 8px 10px; }
+  .pyold-root .tool-range { width: 76px; }
+
+  /* keep Run within reach: the editor stops growing and scrolls instead */
+  .pyold-root .editor-shell { max-height: 55svh; }
+
+  .pyold-root .editor-foot { font-size: 10px; }
+  .pyold-root .empty { min-height: 200px; }
+  .pyold-root .empty svg { width: 32px; height: 32px; }
+}
+
+/* Coarse pointers: give every control a real tap target */
+@media (pointer: coarse) {
+  .pyold-root .mini-btn,
+.pyold-root .py-nav .nav-btn,
+.pyold-root #opt-viz-old #vcrControls button {
+    min-height: 40px;
+  }
+  .pyold-root .controls .btn { min-height: 44px; }
+  .pyold-root #opt-viz-old .ui-slider .ui-slider-handle {
+    width: 22px !important;
+    height: 22px !important;
+    top: -9px !important;
+  }
+}
+
+/* ==========================================================
+   Python Tutor — theme overrides
+   ========================================================== */
+
+.pyold-root #opt-viz-old { color: var(--ink); }
+
+/* Only one code box on the page: the editor. Everything Python Tutor draws
+   that duplicates or refers to its own copy of the code is dropped. */
+.pyold-root #opt-viz-old #pyCodeOutputDiv,
+.pyold-root #opt-viz-old #legendDiv,
+.pyold-root #opt-viz-old #executionSliderDocs,
+.pyold-root #opt-viz-old #langDisplayDiv,
+.pyold-root #opt-viz-old #editCodeLinkDiv,
+.pyold-root #opt-viz-old #annotateLinkDiv,
+.pyold-root #opt-viz-old #vizHeader {
+  display: none !important;
+}
+
+/* verticalStack: stepper on top, output and data view underneath.
+   A wide heap makes the shared table thousands of pixels wide, so the stepper
+   is pinned to the left and given the visible width in JS (see redraw()). */
+.pyold-root #opt-viz-old table.visualizer { width: 100% !important; }
+.pyold-root #opt-viz-old td.vizLayoutTd { vertical-align: top !important; }
+.pyold-root #opt-viz-old #vizLayoutTdSecond { padding-top: 6px !important; }
+.pyold-root #opt-viz-old #codeDisplayDiv {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  padding-right: 10px;
+  background: var(--bg-elevated);
+}
+.pyold-root #opt-viz-old #executionSlider { max-width: 100%; }
+
+/* Print output pane */
+.pyold-root #opt-viz-old #progOutputs { margin-left: 0 !important; }
+.pyold-root #opt-viz-old #printOutputDocs {
+  color: var(--ink-muted) !important;
+  font-size: 11px !important;
+}
+.pyold-root #opt-viz-old #pyStdout,
+.pyold-root #opt-viz-old #pyOutputPane textarea {
+  /* Python Tutor sizes this box from the number of output lines, which leaves
+     a 25px-tall sliver for short programs — keep a readable floor instead */
+  min-height: 96px !important;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  background: #fbfcfe !important;
+  padding: 8px 10px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12.5px !important;
+  line-height: 1.55 !important;
+  color: var(--ink) !important;
+  white-space: pre !important;
+  overflow: auto !important;
+}
+.pyold-root #opt-viz-old .ui-wrapper {
+  min-height: 96px !important;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Data visualization area (frames + objects) */
+.pyold-root #opt-viz-old #dataViz {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 8px !important;
+}
+
+/* Frames & Objects headers */
+.pyold-root #opt-viz-old #stackHeader,
+.pyold-root #opt-viz-old #heapHeader,
+.pyold-root #opt-viz-old .vizHeaderLabel {
+  font-family: var(--font-ui) !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  color: var(--ink-secondary) !important;
+}
+
+/* Frame boxes */
+.pyold-root #opt-viz-old .stackFrame {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  margin-bottom: 6px !important;
+}
+.pyold-root #opt-viz-old .stackFrameHeader { font-weight: 700 !important; }
+
+/* Step controls */
+.pyold-root #opt-viz-old #vcrControls {
+  border: none !important;
+  padding: 10px 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+}
+.pyold-root #opt-viz-old #vcrControls button {
+  background: var(--bg-elevated) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 7px 14px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+.pyold-root #opt-viz-old #vcrControls button:hover:not([disabled]) {
+  border-color: var(--accent) !important;
+  color: var(--accent-dim) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+.pyold-root #opt-viz-old #vcrControls button[disabled] {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+/* Step counter text */
+.pyold-root #opt-viz-old #vcrControls #curInstr,
+.pyold-root #opt-viz-old #vcrControls span {
+  color: var(--ink-secondary) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  font-family: var(--font-mono) !important;
+}
+
+/* raw_input row rendered by Python Tutor */
+.pyold-root #opt-viz-old #rawUserInputDiv {
+  margin-top: 8px !important;
+  padding: 10px 12px !important;
+  border: 1px solid rgba(99,102,241,0.3) !important;
+  border-radius: var(--radius-md) !important;
+  background: rgba(99,102,241,0.05) !important;
+}
+.pyold-root #opt-viz-old #raw_input_textbox {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px 10px !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+}
+.pyold-root #opt-viz-old #raw_input_submit_btn {
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 6px 14px !important;
+  background: var(--bg-elevated) !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+/* error text from the tracer */
+.pyold-root #opt-viz-old #errorOutput {
+  color: var(--err) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+
+/* jQuery UI slider */
+.pyold-root #opt-viz-old .ui-slider {
+  background: rgba(0,0,0,0.06) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--radius-pill) !important;
+  height: 6px !important;
+  margin: 10px 2px !important;
+}
+.pyold-root #opt-viz-old .ui-slider .ui-slider-handle {
+  background: var(--accent) !important;
+  border: 2px solid var(--accent-bright) !important;
+  border-radius: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  top: -6px !important;
+  cursor: grab !important;
+  box-shadow: 0 2px 8px var(--accent-glow) !important;
+  transition: box-shadow 0.15s ease !important;
+}
+.pyold-root #opt-viz-old .ui-slider .ui-slider-handle:hover,
+.pyold-root #opt-viz-old .ui-slider .ui-slider-handle:active {
+  box-shadow: 0 2px 14px rgba(99,102,241,0.3) !important;
+}
+.pyold-root #opt-viz-old .ui-slider .ui-slider-range {
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent)) !important;
+  border-radius: var(--radius-pill) !important;
+}
+
+/* Resizable handle */
+.pyold-root #opt-viz-old .ui-resizable-se { width: 14px !important; height: 14px !important; }
