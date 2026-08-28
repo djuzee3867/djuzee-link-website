@@ -1,0 +1,236 @@
+.tv-panes {
+  /* colours come from the page tokens so the light theme works unchanged */
+  --tv-card: var(--card-bg);
+  --tv-line: var(--card-line);
+  --tv-line-soft: var(--cell-line);
+  --tv-ink: var(--ink);
+  --tv-ink-2: var(--ink-2);
+  --tv-ink-3: var(--ink-3);
+  --tv-accent: var(--accent-2);
+  --tv-green: var(--green);
+  --tv-mono: var(--mono);
+  /* how far each reference level steps to the right */
+  --tv-step: 104px;
+}
+
+/* ---------- the two columns and the connector layer ---------- */
+.tv-panes {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 260px;
+  display: grid;
+  grid-template-columns: minmax(180px, 250px) minmax(0, 1fr);
+  gap: 46px;
+  padding: 16px 18px 22px;
+  overflow: auto;
+}
+.tv-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3; /* over the cards: a line that ducks behind one looks severed */
+}
+.tv-links path {
+  fill: none;
+  stroke: var(--link-ink);
+  stroke-width: 1.4;
+}
+.tv-links marker path {
+  fill: var(--link-ink);
+  stroke: none;
+}
+
+.tv-col {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.tv-col-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tv-ink-3);
+  margin-bottom: 10px;
+}
+
+/* ---------- frames ---------- */
+.tv-frame {
+  border: 1px solid var(--frame-line);
+  border-radius: 10px;
+  background: var(--frame-bg);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.tv-frame.is-active { border-color: var(--accent); }
+.tv-frame-head {
+  padding: 7px 10px;
+  font-family: var(--tv-mono);
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--cell-head);
+  border-bottom: 1px solid var(--frame-line);
+}
+.tv-frame-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--tv-ink-3);
+}
+.tv-var {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 5px 10px;
+}
+.tv-var + .tv-var { border-top: 1px solid var(--frame-line); }
+.tv-var-name {
+  font-family: var(--tv-mono);
+  font-size: 12px;
+  color: var(--tv-ink-2);
+  text-align: right;
+  word-break: break-word;
+}
+.tv-var-name.is-new { color: var(--tv-green); }
+
+/* ---------- objects ---------- */
+.tv-card {
+  /* one object per row, the way Python Tutor stacks them — laying them out
+     side by side makes every connector cross the ones next to it */
+  display: block;
+  width: fit-content;
+  min-width: 118px;
+  max-width: 100%;
+  margin: 0 0 16px;
+  border: 1px solid var(--tv-line);
+  border-radius: 10px;
+  background: var(--tv-card);
+  overflow: hidden;
+}
+.tv-card.is-new { border-color: var(--mark-prev); }
+.tv-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  background: var(--cell-head);
+  border-bottom: 1px solid var(--cell-line);
+}
+.tv-type {
+  font-family: var(--tv-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.tv-chip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--cell-line);
+  background: var(--cell-head);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--tv-ink-2);
+  white-space: nowrap;
+}
+.tv-chip.new {
+  border-color: var(--mark-prev);
+  background: var(--mark-prev);
+  color: var(--tv-green);
+}
+
+.tv-seq { display: flex; flex-wrap: wrap; padding: 10px; }
+.tv-cell {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--cell-line);
+  border-right-width: 0;
+  min-width: 40px;
+}
+.tv-cell:last-child { border-right-width: 1px; }
+.tv-idx {
+  padding: 1px 6px;
+  font-family: var(--tv-mono);
+  font-size: 10px;
+  color: var(--tv-ink-3);
+  text-align: center;
+  background: var(--cell-head);
+  border-bottom: 1px solid var(--cell-line);
+}
+
+.tv-pairs { padding: 6px 10px 10px; }
+.tv-pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.tv-pair + .tv-pair { border-top: 1px solid var(--tv-line-soft); }
+.tv-key {
+  font-family: var(--tv-mono);
+  font-size: 12px;
+  color: var(--tv-accent);
+  min-width: 54px;
+}
+
+.tv-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 3px 8px;
+}
+.tv-prim {
+  font-family: var(--tv-mono);
+  font-size: 12px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tv-prim.is-str { color: var(--str-ink); }
+
+.tv-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 3px var(--line);
+  flex-shrink: 0;
+}
+
+.tv-text {
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+.tv-text.mono { font-family: var(--tv-mono); }
+.tv-empty-note,
+.tv-none {
+  display: inline-block;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--tv-ink-3);
+  padding: 2px;
+}
+
+/* ---------- output ---------- */
+@media (max-width: 640px) {
+  /* keep the columns side by side and let the pane scroll sideways —
+     stacking them turns every connector into a long sweep across the panel */
+  .tv-panes {
+    grid-template-columns: 132px minmax(230px, 1fr);
+    gap: 16px;
+    padding: 14px;
+    --tv-step: 26px;
+  }
+  .tv-var { padding: 5px 8px; }
+  .tv-var-name { font-size: 11px; }
+}

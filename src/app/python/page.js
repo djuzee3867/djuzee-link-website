@@ -3,14 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EXAMPLES, DEFAULT_CODE } from "./examples";
 import { highlightPython } from "./highlight";
+import TraceViz from "./TraceViz";
 import "./python.css";
 
-
 const STORAGE_KEY = "py-visualizer-state";
-const DEFAULT_EDITOR_WIDTH = 440;
-const MIN_EDITOR_WIDTH = 320;
-const MIN_EDITOR_HEIGHT = 300;
-const EDITOR_PADDING_Y = 14; // must match .editor-highlight's bottom padding
+const DEFAULT_CODE_WIDTH = 520;
+const MIN_CODE_WIDTH = 320;
 
 // typing an opener inserts the pair; typing the closer steps over it
 const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
@@ -35,7 +33,6 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
   // 21px lane on the left for the arrows + 6px on the right, then the digits
   const gutterWidth = 27 + Math.max(2, digits) * Math.max(8, Math.round(editorFont * 0.62));
 
-  // keep the gutter and the highlight layer scrolled with the textarea
   const syncScroll = useCallback(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -53,25 +50,12 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
     return () => ta.removeEventListener("scroll", syncScroll);
   }, [syncScroll]);
 
-  // measure real (wrapped) height of every line off the highlight layer
+  // measure the real (wrapped) height of every line off the highlight layer
   const measure = useCallback(() => {
     const ta = taRef.current;
     const layer = layerRef.current;
-    const shell = shellRef.current;
     if (!ta || !layer) return;
-    // match the textarea's content width exactly, scrollbar included
     layer.style.width = `${ta.clientWidth}px`;
-
-    // grow the editor with the code instead of scrolling inside a fixed box
-    const last = layer.lastElementChild;
-    if (shell && last) {
-      // + the horizontal scrollbar the textarea shows when wrapping is off
-      const scrollbar = Math.max(0, ta.offsetHeight - ta.clientHeight);
-      const contentHeight = last.offsetTop + last.offsetHeight + EDITOR_PADDING_Y + scrollbar;
-      const px = `${Math.max(MIN_EDITOR_HEIGHT, Math.ceil(contentHeight) + 2)}px`;
-      if (shell.style.height !== px) shell.style.height = px;
-    }
-
     if (!editorWrap) {
       setLineHeights((prev) => (prev.length ? [] : prev));
       return;
@@ -109,7 +93,6 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
     syncScroll();
   }, [focusLine, syncScroll]);
 
-  // restore caret after a programmatic edit (tab / enter / backspace)
   useEffect(() => {
     const ta = taRef.current;
     const sel = pendingSelRef.current;
@@ -142,7 +125,6 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
       const nextChar = value[end] || "";
       const prevChar = value[start - 1] || "";
 
-      // wrap the selection instead of replacing it
       if (selected && closer) {
         e.preventDefault();
         applyEdit(
@@ -153,7 +135,6 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
         return;
       }
 
-      // step over a closer that is already there
       if (!selected && CLOSERS.has(ch) && nextChar === ch) {
         e.preventDefault();
         ta.selectionStart = ta.selectionEnd = start + 1;
@@ -255,7 +236,6 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
           </div>
         ))}
       </div>
-      {/* one flex item holding both layers, so their geometry is identical */}
       <div className="editor-code">
         <div className={`editor-highlight ${editorWrap ? "wrap" : ""}`} ref={layerRef} aria-hidden>
           {highlighted.map((html, i) => (
@@ -274,15 +254,15 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
           spellCheck={false}
           className={`editor ${editorWrap ? "wrap" : ""}`}
           aria-label="Python code editor"
-          placeholder="# Write Python here, then press Run (Ctrl+Enter)"
+          placeholder="# Write Python here, then press Ctrl+Enter"
         />
       </div>
     </div>
   );
 }
 
-/* ---------------- asset loading helpers (module scope so the
-   promise cache survives re-mounts) ---------------- */
+/* ---------------- asset loading (module scope so the promise
+   cache survives re-mounts) ---------------- */
 const scriptPromises = new Map();
 function loadScriptOnce(src) {
   if (scriptPromises.has(src)) return scriptPromises.get(src);
@@ -298,18 +278,6 @@ function loadScriptOnce(src) {
   p.catch(() => scriptPromises.delete(src));
   return p;
 }
-function loadCssOnce(href) {
-  if (document.querySelector(`link[data-py-css="${href}"]`)) return Promise.resolve();
-  return new Promise((resolve) => {
-    const l = document.createElement("link");
-    l.rel = "stylesheet";
-    l.href = href;
-    l.dataset.pyCss = href;
-    l.onload = () => resolve();
-    l.onerror = () => resolve(); // stylesheet is cosmetic, never block the run
-    document.head.appendChild(l);
-  });
-}
 
 export default function PythonVisualizerPage() {
   const [pyodide, setPyodide] = useState(null);
@@ -318,30 +286,27 @@ export default function PythonVisualizerPage() {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [runError, setRunError] = useState("");
   const [running, setRunning] = useState(false);
-  const [tutorReady, setTutorReady] = useState(false);
-  const [awaitingInput, setAwaitingInput] = useState(false);
-  // lines the tracer is pointing at, mirrored from the visualizer into the editor
-  const [execLines, setExecLines] = useState({ cur: null, prev: null });
+  const [trace, setTrace] = useState([]);
+  const [step, setStep] = useState(0);
   const [errorLine, setErrorLine] = useState(null);
-  const [showContent, setShowContent] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [awaitingInput, setAwaitingInput] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  const [shown, setShown] = useState(false);
+  const [theme, setTheme] = useState("dark");
+  const [codeWidth, setCodeWidth] = useState(DEFAULT_CODE_WIDTH);
+  const [dragging, setDragging] = useState(false);
   const [editorWrap, setEditorWrap] = useState(false);
   const [editorFont, setEditorFont] = useState(14);
-  const [editorWidth, setEditorWidth] = useState(DEFAULT_EDITOR_WIDTH);
-  const [dragging, setDragging] = useState(false);
 
   const rawInputsRef = useRef([]);
-  const vizResizeObserverRef = useRef(null);
-  const vizHostRef = useRef(null);
-  const vizPointerUpRef = useRef(null);
   const prefsLoadedRef = useRef(false);
-  // mirrors of state read from callbacks that outlive their render
-  // (the visualizer keeps our raw-input handler around after a run)
+  const traceRef = useRef([]);
   const codeRef = useRef(code);
   const runningRef = useRef(false);
+  useEffect(() => { traceRef.current = trace; }, [trace]);
   useEffect(() => { codeRef.current = code; }, [code]);
 
-  /* ---------- restore / persist preferences ---------- */
+  /* ---------- preferences ---------- */
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
@@ -349,7 +314,8 @@ export default function PythonVisualizerPage() {
         if (typeof saved.code === "string" && saved.code.trim()) setCode(saved.code);
         if (typeof saved.font === "number") setEditorFont(saved.font);
         if (typeof saved.wrap === "boolean") setEditorWrap(saved.wrap);
-        if (typeof saved.width === "number") setEditorWidth(saved.width);
+        if (typeof saved.width === "number") setCodeWidth(saved.width);
+        if (saved.theme === "light" || saved.theme === "dark") setTheme(saved.theme);
       }
     } catch {}
     prefsLoadedRef.current = true;
@@ -361,16 +327,16 @@ export default function PythonVisualizerPage() {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ code, font: editorFont, wrap: editorWrap, width: editorWidth })
+          JSON.stringify({ code, font: editorFont, wrap: editorWrap, width: codeWidth, theme })
         );
       } catch {}
     }, 300);
     return () => clearTimeout(t);
-  }, [code, editorFont, editorWrap, editorWidth]);
+  }, [code, editorFont, editorWrap, codeWidth, theme]);
 
-  /* ---------- load Pyodide ---------- */
+  /* ---------- Pyodide ---------- */
   useEffect(() => {
-    const t = setTimeout(() => setShowContent(true), 20);
+    const t = setTimeout(() => setShown(true), 20);
     let cancelled = false;
     (async () => {
       try {
@@ -393,48 +359,7 @@ export default function PythonVisualizerPage() {
     };
   }, []);
 
-  function ripple(e) {
-    const target = e.currentTarget;
-    if (!target) return;
-    const rect = target.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height) * 1.2;
-    const x = (e.clientX ?? rect.width / 2) - rect.left;
-    const y = (e.clientY ?? rect.height / 2) - rect.top;
-    const span = document.createElement("span");
-    span.className = "ripple";
-    span.style.width = `${size}px`;
-    span.style.height = `${size}px`;
-    span.style.left = `${x - size / 2}px`;
-    span.style.top = `${y - size / 2}px`;
-    target.appendChild(span);
-    span.addEventListener("animationend", () => span.remove());
-  }
-
-  /* ---------- Python Tutor assets ---------- */
   const pgLoggerLoadedRef = useRef(false);
-  const tutorAssetsLoadedRef = useRef(false);
-
-  async function ensureTutorAssets() {
-    if (tutorAssetsLoadedRef.current && window.ExecutionVisualizer) return;
-    const base = "/pythontutor/v3";
-    await loadCssOnce(`${base}/js/jquery-ui-1.11.4/jquery-ui.css`);
-    await loadCssOnce(`${base}/css/jquery.qtip.css`);
-    await loadCssOnce(`${base}/css/pytutor.css`);
-    // order matters: these scripts depend on the previous globals
-    await loadScriptOnce(`${base}/js/d3.v2.min.js`);
-    await loadScriptOnce(`${base}/js/jquery-1.8.2.min.js`);
-    await loadScriptOnce(`${base}/js/jquery.ba-bbq.min.js`);
-    await loadScriptOnce(`${base}/js/jquery.ba-dotimeout.min.js`);
-    await loadScriptOnce(`${base}/js/jquery.corner.js`);
-    await loadScriptOnce(`${base}/js/jquery-ui-1.11.4/jquery-ui.min.js`);
-    await loadScriptOnce(`${base}/js/jquery.jsPlumb-1.3.10-all-min.js`);
-    await loadScriptOnce(`${base}/js/jquery.qtip.min.js`);
-    await loadScriptOnce(`${base}/js/pytutor.js`);
-    if (!window.ExecutionVisualizer) {
-      throw new Error("Python Tutor assets failed to load");
-    }
-    tutorAssetsLoadedRef.current = true;
-  }
 
   async function ensurePgLogger() {
     if (!pyodide || pgLoggerLoadedRef.current) return;
@@ -465,46 +390,7 @@ sys.modules['pg_logger'] = m_log
     pgLoggerLoadedRef.current = true;
   }
 
-  /* ---------- visualizer lifecycle ---------- */
-  const teardownViz = useCallback(() => {
-    if (vizResizeObserverRef.current) {
-      try { vizResizeObserverRef.current.disconnect(); } catch {}
-      vizResizeObserverRef.current = null;
-    }
-    if (vizHostRef.current && vizPointerUpRef.current) {
-      try { vizHostRef.current.removeEventListener("pointerup", vizPointerUpRef.current); } catch {}
-    }
-    vizHostRef.current = null;
-    vizPointerUpRef.current = null;
-    if (typeof window !== "undefined" && window.myVizResizeHandler) {
-      window.removeEventListener("resize", window.myVizResizeHandler);
-      delete window.myVizResizeHandler;
-    }
-    if (typeof window !== "undefined" && window.myVisualizer) {
-      try { delete window.myVisualizer; } catch { window.myVisualizer = undefined; }
-    }
-    const host = typeof document !== "undefined" ? document.getElementById("opt-viz") : null;
-    if (host) host.innerHTML = "";
-  }, []);
-
-  const redraw = useCallback(() => {
-    // The stepper shares a table with the data view, so a wide heap stretches
-    // it to thousands of pixels. Pin it to the visible width instead.
-    const host = document.getElementById("opt-viz");
-    const body = host && host.closest(".viz-body");
-    if (body) {
-      const px = `${Math.max(320, body.clientWidth - 34)}px`;
-      // the stepper and the output box both sit in that row and would be
-      // dragged along with it, so pin each to the width that is actually visible
-      ["#codeDisplayDiv", "#progOutputs", ".ui-wrapper", "#pyStdout"].forEach((sel) => {
-        const el = host.querySelector(sel);
-        if (el && el.style.width !== px) el.style.width = px;
-      });
-    }
-    try { window.myVisualizer && window.myVisualizer.redrawConnectors(); } catch {}
-  }, []);
-
-  async function runWithTutor(resume = false, inputsOverride = null) {
+  async function run(resume = false, inputsOverride = null) {
     if (!pyodide || runningRef.current) return;
     const source = codeRef.current;
     runningRef.current = true;
@@ -512,7 +398,6 @@ sys.modules['pg_logger'] = m_log
     setRunError("");
     setErrorLine(null);
     try {
-      await ensureTutorAssets();
       await ensurePgLogger();
 
       const inputs = resume ? inputsOverride || rawInputsRef.current || [] : [];
@@ -530,12 +415,10 @@ json.dumps({'code': ___code_str___, 'trace': trace})
       pyodide.globals.delete("___raw_inputs___");
 
       const data = JSON.parse(jsonStr);
-      const trace = Array.isArray(data.trace) ? data.trace : [];
-
-      teardownViz();
+      const nextTrace = Array.isArray(data.trace) ? data.trace : [];
 
       // errors that end the program are the last entry of the trace
-      const last = trace[trace.length - 1];
+      const last = nextTrace[nextTrace.length - 1];
       const fatal =
         last && ["exception", "uncaught_exception", "instruction_limit_reached"].includes(last.event)
           ? last
@@ -546,86 +429,26 @@ json.dumps({'code': ___code_str___, 'trace': trace})
           .replace(/\s*\(<string>,\s*line \d+\)/, "")
           .trim();
         setRunError(`${msg}${fatal.line ? ` (line ${fatal.line})` : ""}`);
-        // mark the offending line in the editor — for a syntax error that is
-        // the only feedback there is, since nothing ran
         if (fatal.line) setErrorLine(fatal.line);
       }
 
-      // a syntax error (or anything that never ran) has no steps to draw —
-      // showing the error alone beats crashing inside the visualizer
-      const hasSteps = trace.some(
+      // a syntax error (or anything that never ran) has no steps to draw
+      const hasSteps = nextTrace.some(
         (ev) => ev && ev.event !== "uncaught_exception" && ev.event !== "raw_input"
       );
       if (!hasSteps) {
-        setTutorReady(false);
         setAwaitingInput(false);
-        setExecLines({ cur: null, prev: null });
+        setTrace([]);
+        setStep(0);
         if (!fatal) setRunError("No execution steps were produced. Check your code for syntax errors.");
         return;
       }
 
-      // does the program want more input? (read it now: the visualizer pops
-      // the trailing raw_input entry off the trace when it is constructed,
-      // and renders its own prompt box at the last step)
-      setAwaitingInput(Boolean(last && last.event === "raw_input"));
-
-      const host = document.getElementById("opt-viz");
-      if (!host) throw new Error("Visualization container is missing");
-
-      const viz = new window.ExecutionVisualizer("opt-viz", { code: source, trace }, {
-        startingInstruction: 0,
-        // the code is shown once, in our own editor: Python Tutor keeps the
-        // stepper and the data view, but draws no second copy of the code
-        verticalStack: true,
-        arrowLines: false,
-        highlightLines: false,
-        executeCodeWithRawInputFunc: (rawInputStr) => {
-          const v = rawInputStr == null ? "" : String(rawInputStr);
-          const next = [...(rawInputsRef.current || []), v];
-          rawInputsRef.current = next;
-          setAwaitingInput(false);
-          runWithTutor(true, next);
-        },
-      });
-      window.myVisualizer = viz;
-
-      // mirror the stepper's position into the editor on every step
-      const syncLines = (v) => {
-        try {
-          v.updateCurPrevLines();
-          setExecLines({ cur: v.curLineNumber || null, prev: v.prevLineNumber || null });
-        } catch {}
-      };
-      viz.add_pytutor_hook("end_updateOutput", (args) => {
-        syncLines(args.myViz);
-        return [false];
-      });
-      syncLines(viz);
-
-      setTimeout(redraw, 0);
-
-      window.myVizResizeHandler = redraw;
-      window.addEventListener("resize", window.myVizResizeHandler);
-
-      if (typeof ResizeObserver !== "undefined") {
-        const ro = new ResizeObserver(redraw);
-        [
-          host,
-          host.closest(".viz-body"),
-          host.querySelector("#dataViz"),
-          host.querySelector("#pyOutputPane"),
-          host.querySelector("#pyStdout"),
-        ]
-          .filter(Boolean)
-          .forEach((el) => { try { ro.observe(el); } catch {} });
-        vizResizeObserverRef.current = ro;
-      }
-      const onPointerUp = () => redraw();
-      host.addEventListener("pointerup", onPointerUp);
-      vizHostRef.current = host;
-      vizPointerUpRef.current = onPointerUp;
-
-      setTutorReady(true);
+      const wantsInput = Boolean(last && last.event === "raw_input");
+      setAwaitingInput(wantsInput);
+      setTrace(nextTrace);
+      // a program that stopped for input has its prompt on the final step
+      setStep(wantsInput ? nextTrace.length - 1 : 0);
     } catch (e) {
       setRunError(e && e.message ? e.message : String(e));
     } finally {
@@ -637,211 +460,170 @@ json.dumps({'code': ___code_str___, 'trace': trace})
   const reset = () => {
     setRunError("");
     setAwaitingInput(false);
-    setTutorReady(false);
-    setExecLines({ cur: null, prev: null });
+    setTrace([]);
+    setStep(0);
     setErrorLine(null);
+    setInputValue("");
     rawInputsRef.current = [];
-    teardownViz();
   };
 
-  // the splitter changes the panel width without the observers noticing
-  useEffect(() => { redraw(); }, [editorWidth, redraw]);
+  const sendInput = () => {
+    const next = [...(rawInputsRef.current || []), inputValue];
+    rawInputsRef.current = next;
+    setInputValue("");
+    setAwaitingInput(false);
+    run(true, next);
+  };
 
-  // editing invalidates the trace, so drop the line markers
-  useEffect(() => {
-    setExecLines((p) => (p.cur || p.prev ? { cur: null, prev: null } : p));
-    setErrorLine(null);
-  }, [code]);
+  // editing invalidates the error marker
+  useEffect(() => { setErrorLine(null); }, [code]);
 
-  useEffect(() => teardownViz, [teardownViz]);
+  /* ---------- which lines the editor marks ---------- */
+  const execLines = useMemo(() => {
+    const cur = trace[step];
+    if (!cur) return { cur: null, prev: null };
+    const prevEntry = step > 0 ? trace[step - 1] : null;
+    const prevLine = prevEntry ? prevEntry.line : null;
+    const atEnd = step === trace.length - 1;
+    const curLine = atEnd && prevLine === cur.line ? null : cur.line;
+    return { cur: curLine, prev: prevLine };
+  }, [trace, step]);
 
-  /* ---------- fullscreen ---------- */
-  const toggleExpanded = useCallback(() => setExpanded((v) => !v), []);
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = expanded ? "hidden" : prev;
-    const timers = [setTimeout(redraw, 0), setTimeout(redraw, 260)];
-    return () => {
-      document.body.style.overflow = prev;
-      timers.forEach(clearTimeout);
-    };
-  }, [expanded, redraw]);
-
-  /* ---------- keyboard: step / exit fullscreen ---------- */
+  /* ---------- keyboard stepping ---------- */
   useEffect(() => {
     const isTyping = (el) =>
       el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     const onKey = (e) => {
-      if (e.key === "Escape" && expanded) {
-        setExpanded(false);
-        return;
-      }
       if (isTyping(document.activeElement)) return;
-      if (!window.myVisualizer) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        try { window.myVisualizer.stepBack(); } catch {}
+        setStep((i) => Math.max(0, i - 1));
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        try { window.myVisualizer.stepForward(); } catch {}
+        setStep((i) => Math.min(traceRef.current.length - 1, i + 1));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [expanded]);
+  }, []);
 
   /* ---------- splitter ---------- */
   const startDrag = (e) => {
     e.preventDefault();
     setDragging(true);
     const startX = e.clientX;
-    const startWidth = editorWidth;
-    const maxWidth = Math.max(MIN_EDITOR_WIDTH, window.innerWidth - 460);
+    const startWidth = codeWidth;
     const onMove = (ev) => {
-      const next = Math.min(maxWidth, Math.max(MIN_EDITOR_WIDTH, startWidth + ev.clientX - startX));
-      setEditorWidth(next);
+      const max = Math.max(MIN_CODE_WIDTH, window.innerWidth - 420);
+      setCodeWidth(Math.min(max, Math.max(MIN_CODE_WIDTH, startWidth + ev.clientX - startX)));
     };
     const onUp = () => {
       setDragging(false);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      redraw();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
 
-  const rootStyle = useMemo(
-    () => ({ "--editor-panel-width": `${editorWidth}px` }),
-    [editorWidth]
-  );
+  const entry = trace[step] || null;
+  const total = trace.length;
+  const terminated = total > 0 && step === total - 1 && !awaitingInput;
+  const status = runError
+    ? runError
+    : awaitingInput
+    ? "waiting for input"
+    : !total
+    ? loadingPyodide
+      ? "loading Python…"
+      : "ready when you are"
+    : terminated
+    ? "program terminated"
+    : `about to run line ${entry.line}`;
 
-  const canRun = Boolean(pyodide) && !loadingPyodide && !running;
-
-  // plain render helper (not a component) so it is not remounted on every render
-  const runButton = () => (
-    <button
-      className={`btn primary ${running ? "busy" : ""}`}
-      onPointerDown={ripple}
-      onClick={() => runWithTutor(false)}
-      disabled={!canRun}
-      title="Run (Ctrl+Enter)"
-    >
-      {running ? (
-        <>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spin"><path d="M21 12a9 9 0 1 1-6.22-8.56" /></svg>
-          Tracing
-        </>
-      ) : (
-        <>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-          Run
-        </>
-      )}
-    </button>
-  );
+  const go = (i) => setStep(Math.max(0, Math.min(total - 1, i)));
 
   return (
     <div
-      className={`py-root ${showContent ? "show" : ""} ${expanded ? "expanded" : ""} ${dragging ? "dragging" : ""}`}
-      style={rootStyle}
+      className={`py-root ${shown ? "show" : ""} ${dragging ? "dragging" : ""}`}
+      data-theme={theme}
+      style={{ "--code-width": `${codeWidth}px` }}
     >
       <header className="py-header">
-        <div className="py-header-inner">
-          <div className="brand">
-            <span className="brand-name">Python Visualizer</span>
-          </div>
-          <div className="header-hint">
-            <span className="kbd-hints">
-              <kbd>Ctrl</kbd>+<kbd>Enter</kbd> run
-              <span className="hint-sep" />
-              <kbd>&larr;</kbd><kbd>&rarr;</kbd> step
-            </span>
-            <span className="hint-sep" />
-            <span className="line-legend">
-              <span className="swatch prev" />just executed
-              <span className="swatch cur" />next to execute
-              <span className="swatch err" />error
-            </span>
-          </div>
-          <nav className="py-nav">
-            <a href="/" className="nav-btn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
-              Home
-            </a>
-          </nav>
+        <div className="brand">
+          <span className="brand-mark">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="3" y="3" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
+              <rect x="13" y="3" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
+              <rect x="3" y="13" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
+              <rect x="14" y="14" width="6" height="6" rx="1.5" fill="currentColor" />
+            </svg>
+          </span>
+          <span className="brand-name">python visualizer</span>
+        </div>
+
+        <div className="header-right">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+            aria-label="Toggle theme"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" />
+            </svg>
+          </button>
+
+          <a className="home-link ghost" href="/python_old">old version</a>
+          <a className="home-link" href="/">Home</a>
         </div>
       </header>
 
       <main className="py-main">
-        <section className="panel editor-panel">
-          <div className="panel-header">
-            <span className="panel-title">Code Editor</span>
-            <div className="status">
-              {loadingPyodide ? (
-                <span className="badge loading"><span className="status-dot" />Loading Python</span>
-              ) : pyodide ? (
-                <span className="badge ok"><span className="status-dot" />Ready</span>
-              ) : (
-                <span className="badge error"><span className="status-dot" />Failed to load</span>
-              )}
-            </div>
-          </div>
-
-          <div className="editor-wrap">
-            <div className="editor-toolbar">
-              <div className="tool-group">
-                <label className="tool-label" htmlFor="example-select">Examples</label>
+        <div className="left-col">
+          <section className="pane code-pane">
+            <div className="pane-head">
+              <span className="pane-title">Code</span>
+              <div className="code-tools">
                 <select
-                  id="example-select"
-                  className="tool-select"
+                  className="example-select"
                   value=""
                   onChange={(e) => {
                     const found = EXAMPLES.find((x) => x.id === e.target.value);
-                    if (found) setCode(found.code);
+                    if (found) {
+                      setCode(found.code);
+                      reset();
+                    }
                     e.target.value = "";
                   }}
+                  aria-label="Load an example"
                 >
-                  <option value="" disabled>Choose an example</option>
+                  <option value="" disabled>Examples…</option>
                   {EXAMPLES.map((ex) => (
                     <option key={ex.id} value={ex.id}>{ex.label}</option>
                   ))}
                 </select>
-              </div>
-              <div className="tool-group">
-                <label className="tool-label" htmlFor="font-range">Font</label>
+
+                <label className="wrap-toggle" title="Wrap long lines">
+                  <input type="checkbox" checked={editorWrap} onChange={(e) => setEditorWrap(e.target.checked)} />
+                  <span>wrap</span>
+                </label>
+
                 <input
-                  id="font-range"
+                  className="font-range"
                   type="range"
                   min={12}
                   max={20}
                   step={1}
                   value={editorFont}
-                  onChange={(e) => setEditorFont(parseInt(e.target.value || "14", 10))}
-                  className="tool-range"
+                  onChange={(e) => setEditorFont(parseInt(e.target.value, 10))}
+                  aria-label="Editor font size"
+                  title={`Font size ${editorFont}px`}
                 />
-                <span className="tool-value">{editorFont}px</span>
               </div>
-              <label className="tool-checkbox">
-                <input type="checkbox" checked={editorWrap} onChange={(e) => setEditorWrap(e.target.checked)} />
-                Wrap
-              </label>
-              <div className="tool-spacer" />
-              <button className="mini-btn" onPointerDown={ripple} title="Copy code" onClick={async () => { try { await navigator.clipboard.writeText(code); } catch {} }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                Copy
-              </button>
-              <button className="mini-btn" onPointerDown={ripple} title="Paste from clipboard" onClick={async () => { try { const t = await navigator.clipboard.readText(); if (t) setCode(t); } catch {} }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" /></svg>
-                Paste
-              </button>
-              <button className="mini-btn danger" onPointerDown={ripple} title="Clear editor" onClick={() => setCode("")}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /></svg>
-                Clear
-              </button>
             </div>
 
             <EditorWithGutter
@@ -849,92 +631,135 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               setCode={setCode}
               editorWrap={editorWrap}
               editorFont={editorFont}
-              onRun={() => runWithTutor(false)}
+              onRun={() => run(false)}
               curLine={execLines.cur}
               prevLine={execLines.prev}
               errorLine={errorLine}
             />
-            <div className="editor-foot">
-              <span>{code.split("\n").length === 1 ? "1 line" : `${code.split("\n").length} lines`}</span>
-              <span>Tab indents, Shift+Tab outdents</span>
-            </div>
-          </div>
 
-          <div className="controls">
-            {runButton()}
-            <button className="btn" onPointerDown={ripple} onClick={reset} disabled={running}>Reset</button>
-            {awaitingInput && (
-              <span className="waiting-input">Waiting for input in the trace panel</span>
+            <div className="legend">
+              <span className="legend-item prev"><i /> line that just executed</span>
+              <span className="legend-item cur"><i /> next line to execute</span>
+              {errorLine && <span className="legend-item err"><i /> error</span>}
+            </div>
+
+            <div className="run-row">
+              <button
+                className={`run-btn ${running ? "busy" : ""}`}
+                onClick={() => run(false)}
+                disabled={!pyodide || running}
+              >
+                {running ? (
+                  <>
+                    <svg className="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56" /></svg>
+                    Tracing…
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+                    Visualize Execution
+                  </>
+                )}
+              </button>
+              <button className="ghost-btn" onClick={reset} disabled={running || !total}>Reset</button>
+              <span className={`state ${loadingPyodide ? "loading" : pyodideFailed ? "bad" : "ok"}`}>
+                {loadingPyodide ? "loading Python…" : pyodideFailed ? "failed to load" : "Python ready"}
+              </span>
+              <span className="steps-note">
+                {total ? `${total} steps` : `${code.split("\n").length} lines`}
+              </span>
+            </div>
+
+            {(runError || pyodideFailed) && (
+              <div className="error-note">
+                {runError || "Could not load the Python runtime. Check your connection and reload."}
+              </div>
             )}
-          </div>
+          </section>
 
-          {runError && (
-            <div className="callout error">
-              <div className="callout-title">Error</div>
-              <div className="callout-body">{runError}</div>
+          <section className="pane out-pane">
+            <div className="pane-head">
+              <span className="pane-title">Print output (stdout)</span>
+              <span className="pane-note">up to the current step</span>
             </div>
-          )}
-          {pyodideFailed && !runError && (
-            <div className="callout error">
-              <div className="callout-title">Error</div>
-              <div className="callout-body">Could not load the Python runtime. Check your connection and reload the page.</div>
-            </div>
-          )}
-        </section>
+            <pre className="stdout">{entry && entry.stdout ? entry.stdout : "— no output yet —"}</pre>
+          </section>
+        </div>
 
         <div
           className="splitter"
           onPointerDown={startDrag}
-          onDoubleClick={() => setEditorWidth(DEFAULT_EDITOR_WIDTH)}
+          onDoubleClick={() => setCodeWidth(DEFAULT_CODE_WIDTH)}
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize code editor"
+          aria-label="Resize the code panel"
           title="Drag to resize, double-click to reset"
         >
-          <span className="splitter-grip" />
+          <span />
         </div>
 
-        <section className="panel viz-panel">
-          <div className="panel-header">
-            <h2 className="panel-title">Execution Trace</h2>
-            <div className="panel-actions">
-              <span className={`meta ${tutorReady ? "ok" : ""}`}>
-                <span className="meta-dot" />
-                {running ? "Tracing" : tutorReady ? "Ready" : "Waiting"}
-              </span>
-              <button
-                className="mini-btn"
-                onPointerDown={ripple}
-                onClick={toggleExpanded}
-                title={expanded ? "Exit fullscreen (Esc)" : "Expand to fullscreen"}
-              >
-                {expanded ? (
-                  <>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" /><line x1="14" y1="10" x2="21" y2="3" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-                    Exit fullscreen
-                  </>
-                ) : (
-                  <>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
-                    Fullscreen
-                  </>
-                )}
-              </button>
+        <section className="canvas-pane">
+          {total > 0 ? (
+            <TraceViz trace={trace} step={step} />
+          ) : (
+            <div className="canvas-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
+              <p>Write code and press Visualize Execution</p>
+              <span>Frames and objects will be drawn here</span>
             </div>
-          </div>
+          )}
 
-          <div className="viz-body">
-            <div id="opt-viz" />
-            {!tutorReady && (
-              <div className="empty">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>
-                <p>Write code and press Run to visualize execution</p>
-                <span>Then use Forward / Back, or the arrow keys, to step through it</span>
+          {awaitingInput && (
+            <form
+              className="input-pop"
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendInput();
+              }}
+            >
+              <span className="input-pop-title">waiting for input</span>
+              <span className="input-pop-prompt">{entry && entry.prompt ? entry.prompt : "Input"}</span>
+              <div className="input-pop-row">
+                <input
+                  className="input-box"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  placeholder="type a value, then Enter"
+                  autoFocus
+                  aria-label="Program input"
+                />
+                <button type="submit" className="send-btn">Send</button>
               </div>
-            )}
-          </div>
+            </form>
+          )}
         </section>
       </main>
+
+      <footer className="stepbar">
+        <input
+          className="stepbar-slider"
+          type="range"
+          min={0}
+          max={Math.max(0, total - 1)}
+          value={step}
+          onChange={(e) => go(parseInt(e.target.value, 10))}
+          disabled={!total}
+          aria-label="Execution step"
+        />
+        <div className="stepbar-buttons">
+          <button onClick={() => go(0)} disabled={!total || step === 0}>&lt;&lt; First</button>
+          <button onClick={() => go(step - 1)} disabled={!total || step === 0}>&lt; Prev</button>
+          <span className="stepbar-count">
+            {total ? <>Step <b>{step + 1}</b> of {total}</> : "no trace yet"}
+          </span>
+          <button onClick={() => go(step + 1)} disabled={!total || step >= total - 1}>Next &gt;</button>
+          <button onClick={() => go(total - 1)} disabled={!total || step >= total - 1}>Last &gt;&gt;</button>
+        </div>
+        <span className={`stepbar-status ${runError ? "bad" : terminated ? "done" : ""}`}>{status}</span>
+      </footer>
     </div>
   );
 }
