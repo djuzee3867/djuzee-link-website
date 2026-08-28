@@ -941,13 +941,26 @@
 }
 #opt-viz #pyStdout,
 #opt-viz #pyOutputPane textarea {
+  /* Python Tutor sizes this box from the number of output lines, which leaves
+     a 25px-tall sliver for short programs — keep a readable floor instead */
+  min-height: 96px !important;
+  max-width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--glass-border) !important;
   border-radius: var(--radius-sm) !important;
   background: #fbfcfe !important;
-  padding: 8px !important;
+  padding: 8px 10px !important;
   font-family: var(--font-mono) !important;
   font-size: 12.5px !important;
+  line-height: 1.55 !important;
   color: var(--ink) !important;
+  white-space: pre !important;
+  overflow: auto !important;
+}
+#opt-viz .ui-wrapper {
+  min-height: 96px !important;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Data visualization area (frames + objects) */

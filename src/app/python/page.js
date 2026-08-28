@@ -12,6 +12,10 @@ const MIN_EDITOR_WIDTH = 320;
 const MIN_EDITOR_HEIGHT = 300;
 const EDITOR_PADDING_Y = 14; // must match .editor-highlight's bottom padding
 
+// typing an opener inserts the pair; typing the closer steps over it
+const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
+const CLOSERS = new Set([")", "]", "}", '"', "'"]);
+
 /* ---------------------------------------------------------------
    Editor: a transparent textarea sitting on top of a highlight layer.
    The layer is also what the gutter measures, so line numbers stay
@@ -130,6 +134,49 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
       return;
     }
 
+    // brackets and quotes
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const ch = e.key;
+      const closer = PAIRS[ch];
+      const selected = value.slice(start, end);
+      const nextChar = value[end] || "";
+      const prevChar = value[start - 1] || "";
+
+      // wrap the selection instead of replacing it
+      if (selected && closer) {
+        e.preventDefault();
+        applyEdit(
+          value.slice(0, start) + ch + selected + closer + value.slice(end),
+          start + 1,
+          end + 1
+        );
+        return;
+      }
+
+      // step over a closer that is already there
+      if (!selected && CLOSERS.has(ch) && nextChar === ch) {
+        e.preventDefault();
+        ta.selectionStart = ta.selectionEnd = start + 1;
+        return;
+      }
+
+      if (!selected && closer) {
+        const isQuote = ch === '"' || ch === "'";
+        // leave text alone when typing right before a word, and never turn an
+        // apostrophe inside a word (don't) into a pair
+        const glued = /[\w"']/.test(nextChar) || (isQuote && /\w/.test(prevChar));
+        if (!glued) {
+          e.preventDefault();
+          applyEdit(
+            value.slice(0, start) + ch + closer + value.slice(start),
+            start + 1,
+            start + 1
+          );
+          return;
+        }
+      }
+    }
+
     if (e.key === "Tab") {
       e.preventDefault();
       const lineStart = value.lastIndexOf("\n", start - 1) + 1;
@@ -174,6 +221,13 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
     }
 
     if (e.key === "Backspace" && start === end) {
+      // sitting between an empty pair: remove both halves
+      const before1 = value[start - 1];
+      if (before1 && PAIRS[before1] === value[start]) {
+        e.preventDefault();
+        applyEdit(value.slice(0, start - 1) + value.slice(start + 1), start - 1, start - 1);
+        return;
+      }
       const lineStart = value.lastIndexOf("\n", start - 1) + 1;
       const before = value.slice(lineStart, start);
       if (before.length >= 4 && /^ +$/.test(before) && before.length % 4 === 0) {
@@ -438,10 +492,14 @@ sys.modules['pg_logger'] = m_log
     // it to thousands of pixels. Pin it to the visible width instead.
     const host = document.getElementById("opt-viz");
     const body = host && host.closest(".viz-body");
-    const stepper = host && host.querySelector("#codeDisplayDiv");
-    if (stepper && body) {
+    if (body) {
       const px = `${Math.max(320, body.clientWidth - 34)}px`;
-      if (stepper.style.width !== px) stepper.style.width = px;
+      // the stepper and the output box both sit in that row and would be
+      // dragged along with it, so pin each to the width that is actually visible
+      ["#codeDisplayDiv", "#progOutputs", ".ui-wrapper", "#pyStdout"].forEach((sel) => {
+        const el = host.querySelector(sel);
+        if (el && el.style.width !== px) el.style.width = px;
+      });
     }
     try { window.myVisualizer && window.myVisualizer.redrawConnectors(); } catch {}
   }, []);
