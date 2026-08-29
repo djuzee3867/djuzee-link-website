@@ -503,36 +503,37 @@ export default function TraceViz({ entry, prev, explain }) {
       if (!target) return;
       const s = dot.getBoundingClientRect();
       const t = target.getBoundingClientRect();
-      const x1 = s.right - base.left + wrap.scrollLeft;
-      const y1 = s.top + s.height / 2 - base.top + wrap.scrollTop;
+
+      // A dot inside an object card leaves downwards. Leaving to the right
+      // would cut through its own card's edge every single time, which is what
+      // made a linked list look like it had been slashed through.
+      const inside = dot.closest(".tv-card") !== null;
+      const x1 = inside
+        ? s.left + s.width / 2 - base.left + wrap.scrollLeft
+        : s.right - base.left + wrap.scrollLeft;
+      const y1 = inside
+        ? s.bottom - base.top + wrap.scrollTop
+        : s.top + s.height / 2 - base.top + wrap.scrollTop;
+
+      // every arrow arrives horizontally at the left edge, level with the head
       const x2 = t.left - base.left + wrap.scrollLeft - 9;
       const y2 = t.top - base.top + wrap.scrollTop + Math.min(19, t.height / 2);
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      let c1x;
-      let c1y;
-      let c2x;
-      let c2y;
-      if (dx > 24) {
-        // card is off to the right: a shallow horizontal arc
-        const k = Math.min(55, Math.max(18, dx * 0.55));
-        c1x = x1 + k;
-        c1y = y1;
-        c2x = x2 - k;
-        c2y = y2;
-      } else {
-        // card is level with or behind the dot (a chain pointing back down the
-        // column): drop out of the dot and come in from the left rather than
-        // looping backwards across everything in between
-        const k = Math.min(48, Math.max(20, Math.abs(dy) * 0.35));
-        c1x = x1 + 18;
-        c1y = y1 + k;
-        c2x = x2 - 28;
-        c2y = y2 - k * 0.5;
-      }
+
+      // Handles grow with the distance instead of being capped. A capped handle
+      // over a long span flattens the curve into a diagonal that cuts across
+      // everything between the two cards; letting it grow keeps the line
+      // leaving and arriving flat, so it reads as one sweep around the gap.
+      const reach = Math.max(
+        28,
+        Math.abs(x2 - x1) * 0.45,
+        Math.abs(y2 - y1) * 0.22
+      );
+
       next.push({
         key: `${dot.dataset.from}->${dot.dataset.to}`,
-        d: `M ${x1} ${y1} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${x2} ${y2}`,
+        d: inside
+          ? `M ${x1} ${y1} C ${x1} ${y1 + reach}, ${x2 - reach} ${y2}, ${x2} ${y2}`
+          : `M ${x1} ${y1} C ${x1 + reach} ${y1}, ${x2 - reach} ${y2}, ${x2} ${y2}`,
       });
     });
     setPaths(next);
