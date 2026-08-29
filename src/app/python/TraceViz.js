@@ -2,13 +2,20 @@
 
 /* Renders one step of a Python Tutor trace: frames on the left, heap objects
    on the right, and our own SVG connectors between them. Replaces the
-   jsPlumb/jQuery rendering that pg_logger's frontend would normally do. */
+   jsPlumb/jQuery rendering that pg_logger's frontend would normally do.
+
+   numpy arrays and pandas frames arrive as ['VIZ', grid] instead of a string of
+   repr text (see public/pyviz/viz_snap.py) so they can be drawn cell by cell,
+   which is what makes the two kinds of colouring here possible:
+     .chg  a cell whose value differs from the previous step
+     .sel  a cell an explainer picked out, e.g. the ones a slice selects */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./traceviz.css";
 
 const isRef = (v) => Array.isArray(v) && v[0] === "REF";
 const isSpecialFloat = (v) => Array.isArray(v) && v[0] === "SPECIAL_FLOAT";
+const isViz = (v) => Array.isArray(v) && v[0] === "VIZ";
 
 function primitiveText(v) {
   if (v === null || v === undefined) return "None";
@@ -18,11 +25,230 @@ function primitiveText(v) {
   return String(v);
 }
 
-/* [tag, ...rest] -> a heading and a body shape the card can render */
+/* ---------------------------------------------------------------- grids */
+
+function fmtNumber(v) {
+  if (Number.isInteger(v)) return String(v);
+  const abs = Math.abs(v);
+  if (abs >= 1e7 || (v !== 0 && abs < 1e-4)) return v.toExponential(3);
+  return String(Math.round(v * 1e4) / 1e4);
+}
+
+/* a grid cell is already JSON-safe: null stands for every flavour of NA */
+function cellText(v) {
+  if (v === null || v === undefined) return "NaN";
+  if (typeof v === "boolean") return v ? "True" : "False";
+  if (typeof v === "number") return fmtNumber(v);
+  return String(v);
+}
+
+function cellClass(v) {
+  if (v === null || v === undefined) return "na";
+  if (typeof v === "number" || typeof v === "boolean") return "";
+  return "text";
+}
+
+const range = (n) => Array.from({ length: n }, (_, i) => i);
+
+/* Only diff two snapshots that still describe the same table. Without this a
+   reshape or a new column repaints every cell as changed, which says nothing. */
+function sameLayout(now, before) {
+  if (!before || now.kind !== before.kind) return false;
+  if (JSON.stringify(now.shown) !== JSON.stringify(before.shown)) return false;
+  if (now.kind === "DataFrame") {
+    return JSON.stringify(now.columns) === JSON.stringify(before.columns)
+      && JSON.stringify(now.index) === JSON.stringify(before.index);
+  }
+  if (now.kind === "Series") {
+    return JSON.stringify(now.index) === JSON.stringify(before.index);
+  }
+  return true;
+}
+
+function Grid({ rows, prevRows, highlight, rowHeads, colHeads, dtypes, corner }) {
+  const width = rows.length ? rows[0].length : 0;
+  return (
+    <table className="tv-grid">
+      {colHeads && (
+        <thead>
+          <tr>
+            {rowHeads && <th className="tv-corner">{corner || ""}</th>}
+            {colHeads.map((label, i) => (
+              <th className="tv-colhead" key={i}>{label}</th>
+            ))}
+          </tr>
+          {dtypes && (
+            <tr className="tv-dtype-row">
+              {rowHeads && <th className="tv-corner" />}
+              {dtypes.map((t, i) => <th key={i}>{t}</th>)}
+            </tr>
+          )}
+        </thead>
+      )}
+      <tbody>
+        {rows.map((cells, r) => (
+          <tr key={r}>
+            {rowHeads && <th className="tv-rowhead">{rowHeads[r]}</th>}
+            {range(width).map((c) => {
+              const value = cells[c];
+              const before = prevRows && prevRows[r] ? prevRows[r][c] : undefined;
+              const changed = prevRows && before !== undefined && before !== value;
+              const picked = Boolean(highlight && highlight[r] && highlight[r][c]);
+              return (
+                <td
+                  key={c}
+                  className={[cellClass(value), changed ? "chg" : "", picked ? "sel" : ""]
+                    .filter(Boolean).join(" ")}
+                >
+                  {cellText(value)}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TruncNote({ snap }) {
+  if (!snap.truncated) return null;
+  const full = snap.shape.join(" × ");
+  const shown = snap.shown.length ? snap.shown.join(" × ") : "nothing";
+  return <div className="tv-trunc">showing {shown} of {full}</div>;
+}
+
+/* one ['VIZ', grid] payload -> a table (or a stack of them for 3-D) */
+function VizBody({ snap, prev }) {
+  const before = sameLayout(snap, prev) ? prev : null;
+
+  if (snap.kind === "scalar" || snap.kind === "opaque") {
+    const text = snap.kind === "scalar" ? cellText(snap.data) : snap.repr;
+    return <div className={`tv-text ${snap.kind === "opaque" ? "mono" : ""}`}>{text}</div>;
+  }
+
+  if (snap.kind === "ndarray") {
+    if (snap.data === null || snap.data === undefined) {
+      return <div className="tv-text">{snap.ndim}-D array — too many axes to draw</div>;
+    }
+    if (snap.ndim === 0) {
+      return <div className="tv-text mono">{cellText(snap.data)}</div>;
+    }
+    if (snap.ndim === 1) {
+      return (
+        <div className="tv-gridwrap">
+          <Grid
+            rows={[snap.data]}
+            prevRows={before ? [before.data] : null}
+            highlight={snap.highlight ? [snap.highlight] : null}
+            colHeads={range(snap.shown[0])}
+          />
+          <TruncNote snap={snap} />
+        </div>
+      );
+    }
+    if (snap.ndim === 2) {
+      return (
+        <div className="tv-gridwrap">
+          <Grid
+            rows={snap.data}
+            prevRows={before ? before.data : null}
+            highlight={snap.highlight}
+            rowHeads={range(snap.shown[0])}
+            colHeads={range(snap.shown[1])}
+          />
+          <TruncNote snap={snap} />
+        </div>
+      );
+    }
+    return (
+      <div className="tv-gridwrap">
+        {snap.data.map((plane, i) => (
+          <div className="tv-plane" key={i}>
+            <div className="tv-plane-label">[{i}]</div>
+            <Grid
+              rows={plane}
+              prevRows={before && before.data ? before.data[i] : null}
+              highlight={snap.highlight ? snap.highlight[i] : null}
+              rowHeads={range(snap.shown[1])}
+              colHeads={range(snap.shown[2])}
+            />
+          </div>
+        ))}
+        <TruncNote snap={snap} />
+      </div>
+    );
+  }
+
+  if (snap.kind === "DataFrame") {
+    return (
+      <div className="tv-gridwrap">
+        <Grid
+          rows={snap.data}
+          prevRows={before ? before.data : null}
+          highlight={snap.highlight}
+          rowHeads={snap.index}
+          colHeads={snap.columns}
+          dtypes={snap.dtypes}
+          corner={snap.index_name || ""}
+        />
+        <TruncNote snap={snap} />
+      </div>
+    );
+  }
+
+  if (snap.kind === "Series") {
+    return (
+      <div className="tv-gridwrap">
+        <Grid
+          rows={snap.data.map((v) => [v])}
+          prevRows={before ? before.data.map((v) => [v]) : null}
+          highlight={snap.highlight}
+          rowHeads={snap.index}
+          colHeads={[snap.name === null ? "values" : snap.name]}
+          dtypes={[snap.dtype]}
+          corner={snap.index_name || ""}
+        />
+        <TruncNote snap={snap} />
+      </div>
+    );
+  }
+
+  return <div className="tv-text mono">{JSON.stringify(snap)}</div>;
+}
+
+function vizHead(snap) {
+  switch (snap.kind) {
+    case "ndarray":
+      return { label: "ndarray", chips: [snap.shape.join(" × ") || "0-D", snap.dtype] };
+    case "DataFrame": {
+      const [r, c] = snap.shape;
+      return {
+        label: "DataFrame",
+        chips: [`${r} ${r === 1 ? "row" : "rows"} × ${c} ${c === 1 ? "col" : "cols"}`],
+      };
+    }
+    case "Series": {
+      const n = snap.shape[0];
+      return { label: "Series", chips: [`${n} ${n === 1 ? "value" : "values"}`, snap.dtype] };
+    }
+    case "scalar":
+      return { label: snap.py_type, chips: [snap.dtype].filter(Boolean) };
+    default:
+      return { label: snap.py_type || snap.kind, chips: [] };
+  }
+}
+
+/* ------------------------------------------------- python-tutor value shapes */
+
 function describe(obj) {
   if (!Array.isArray(obj)) return { kind: "raw", label: "value", text: String(obj) };
   const [tag, ...rest] = obj;
   switch (tag) {
+    case "VIZ": {
+      const head = vizHead(rest[0]);
+      return { kind: "viz", label: head.label, chips: head.chips, snap: rest[0] };
+    }
     case "LIST":
     case "TUPLE":
     case "SET":
@@ -43,7 +269,7 @@ function describe(obj) {
     case "INSTANCE":
       return { kind: "pairs", label: `${rest[0]} instance`, pairs: rest.slice(1) };
     case "INSTANCE_PPRINT":
-      return { kind: "text", label: `${rest[0]} instance`, text: String(rest[1]) };
+      return { kind: "text", label: `${rest[0]} instance`, text: String(rest[1]), mono: true };
     case "CLASS":
       return {
         kind: "pairs",
@@ -61,7 +287,6 @@ function describe(obj) {
       return { kind: "text", label: String(tag), text: String(rest[0] ?? ""), mono: true };
   }
 }
-
 
 /* every heap id a value (or nested value) points at */
 function refsIn(value, out = []) {
@@ -117,8 +342,9 @@ function Value({ value, path }) {
   );
 }
 
-function ObjectCard({ id, obj, isNew, level }) {
+function ObjectCard({ id, obj, prevObj, isNew, level }) {
   const d = describe(obj);
+  const prevSnap = isViz(prevObj) ? prevObj[1] : null;
   return (
     <div
       className={`tv-card ${isNew ? "is-new" : ""}`}
@@ -129,8 +355,11 @@ function ObjectCard({ id, obj, isNew, level }) {
       <div className="tv-card-head">
         <span className="tv-type">{d.label}</span>
         {d.chip && <span className="tv-chip">{d.chip}</span>}
+        {d.chips && d.chips.map((c) => <span className="tv-chip" key={c}>{c}</span>)}
         {isNew && <span className="tv-chip new">new</span>}
       </div>
+
+      {d.kind === "viz" && <VizBody snap={d.snap} prev={prevSnap} />}
 
       {d.kind === "sequence" && (
         <div className="tv-seq">
@@ -189,15 +418,36 @@ function Frame({ title, names, locals: vars, highlight, newNames, keyPrefix }) {
   );
 }
 
-export default function TraceViz({ trace, step }) {
+/* The panel a sub-step lays over the top of the normal picture. It has no state
+   of its own — the frames and objects below still belong to the parent step. */
+function ExplainPanel({ explain }) {
+  return (
+    <div className="tv-explain">
+      <div className="tv-explain-head">
+        <span className="tv-explain-op">{explain.op}</span>
+        <span className="tv-explain-title">{explain.title}</span>
+      </div>
+      <div className="tv-explain-boxes">
+        {(explain.boxes || []).map((b, i) => (
+          <div className="tv-explain-box" key={i}>
+            <div className="tv-explain-label">{b.label}</div>
+            {b.snap ? <VizBody snap={b.snap} prev={null} /> : null}
+            {b.note && <div className="tv-explain-note">{b.note}</div>}
+          </div>
+        ))}
+      </div>
+      {explain.note && <div className="tv-explain-note wide">{explain.note}</div>}
+    </div>
+  );
+}
+
+export default function TraceViz({ entry, prev, explain }) {
   const wrapRef = useRef(null);
   const [paths, setPaths] = useState([]);
 
-  const entry = trace[step] || null;
-  const prev = step > 0 ? trace[step - 1] : null;
-
   // objects and names that appeared at this step get a subtle highlight
-  const prevHeapIds = new Set(prev ? Object.keys(prev.heap || {}) : []);
+  const prevHeap = prev ? prev.heap || {} : {};
+  const prevHeapIds = new Set(prev ? Object.keys(prevHeap) : []);
   const prevGlobals = new Set(prev ? prev.ordered_globals || [] : []);
 
   const measure = useCallback(() => {
@@ -248,7 +498,7 @@ export default function TraceViz({ trace, step }) {
     setPaths(next);
   }, []);
 
-  useLayoutEffect(() => { measure(); }, [measure, entry, step]);
+  useLayoutEffect(() => { measure(); }, [measure, entry, explain]);
 
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
@@ -267,7 +517,9 @@ export default function TraceViz({ trace, step }) {
   const { level: levels, order: heapIds } = heapLayout(entry);
 
   return (
-    <div className="tv-panes" ref={wrapRef}>
+    <div className="tv-scroll" ref={wrapRef}>
+      {explain && <ExplainPanel explain={explain} />}
+
       <svg className="tv-links" aria-hidden="true">
         <defs>
           <marker
@@ -287,44 +539,47 @@ export default function TraceViz({ trace, step }) {
         ))}
       </svg>
 
-      <div className="tv-col frames">
-        <div className="tv-col-head">Frames</div>
-        <Frame
-          title="Global frame"
-          names={entry.ordered_globals || []}
-          locals={entry.globals || {}}
-          newNames={new Set((entry.ordered_globals || []).filter((n) => !prevGlobals.has(n)))}
-          keyPrefix="g"
-          highlight={!(entry.stack_to_render || []).length}
-        />
-        {(entry.stack_to_render || []).map((f) => (
+      <div className="tv-panes">
+        <div className="tv-col frames">
+          <div className="tv-col-head">Frames</div>
           <Frame
-            key={f.unique_hash || f.frame_id}
-            title={f.func_name}
-            names={f.ordered_varnames || []}
-            locals={f.encoded_locals || {}}
-            newNames={new Set()}
-            keyPrefix={`f${f.frame_id}`}
-            highlight={f.is_highlighted}
+            title="Global frame"
+            names={entry.ordered_globals || []}
+            locals={entry.globals || {}}
+            newNames={new Set((entry.ordered_globals || []).filter((n) => !prevGlobals.has(n)))}
+            keyPrefix="g"
+            highlight={!(entry.stack_to_render || []).length}
           />
-        ))}
-      </div>
-
-      <div className="tv-col objects">
-        <div className="tv-col-head">Objects</div>
-        {heapIds.length === 0 ? (
-          <div className="tv-none">nothing on the heap yet</div>
-        ) : (
-          heapIds.map((id) => (
-            <ObjectCard
-              key={id}
-              id={id}
-              obj={heap[id]}
-              isNew={!prevHeapIds.has(id)}
-              level={Math.min(levels[id], 4)}
+          {(entry.stack_to_render || []).map((f) => (
+            <Frame
+              key={f.unique_hash || f.frame_id}
+              title={f.func_name}
+              names={f.ordered_varnames || []}
+              locals={f.encoded_locals || {}}
+              newNames={new Set()}
+              keyPrefix={`f${f.frame_id}`}
+              highlight={f.is_highlighted}
             />
-          ))
-        )}
+          ))}
+        </div>
+
+        <div className="tv-col objects">
+          <div className="tv-col-head">Objects</div>
+          {heapIds.length === 0 ? (
+            <div className="tv-none">nothing on the heap yet</div>
+          ) : (
+            heapIds.map((id) => (
+              <ObjectCard
+                key={id}
+                id={id}
+                obj={heap[id]}
+                prevObj={prevHeap[id]}
+                isNew={!prevHeapIds.has(id)}
+                level={Math.min(levels[id], 4)}
+              />
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
