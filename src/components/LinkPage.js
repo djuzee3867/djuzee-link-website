@@ -97,7 +97,7 @@ export default function LinkPage() {
   }, []);
 
   const links = [
-    { title: "E-portfolio", desc: "My personal works and resume", url: "https://djuzee-website.vercel.app/", icon: <LinkIcon /> },
+    { title: "E-portfolio", desc: "My personal works and resume", url: "https://djuzee.site/", icon: <LinkIcon /> },
     { title: "Python Visualizer", desc: "Interactive python code execution", url: "/python", icon: <CodeIcon /> },
     { title: "Bot discord", desc: "Server management and automation", url: "https://discord.com/oauth2/authorize?client_id=1293199567503753307&permissions=8&integration_type=0&scope=bot", icon: <BotIcon /> },
     { title: "Schedule", desc: "Timetable and appointment tracking", url: "/Schedule", icon: <CalendarIcon /> },

@@ -1,5 +1,6 @@
 // Code samples for the visualizer dropdown. Each one is short enough to stay
-// well under Python Tutor's 1000-step trace limit and only uses builtins.
+// well under Python Tutor's 1000-step trace limit. The last two import numpy or
+// pandas, which are downloaded on demand the first time such a sample is run.
 
 export const EXAMPLES = [
   {
@@ -155,6 +156,34 @@ else:
     print("You are already 18 or older")
 `,
   },
-];
+  {
+    id: "numpy-slice",
+    label: "numpy: slicing and views",
+    code: `import numpy as np
 
-export const DEFAULT_CODE = EXAMPLES[1].code;
+a = np.arange(12).reshape(3, 4)
+window = a[1:, 1:3]
+a[a > 8] = 0
+
+print("window:", window.tolist())
+print("column means:", a.mean(axis=0).tolist())
+`,
+  },
+  {
+    id: "pandas-frame",
+    label: "pandas: filter and group",
+    code: `import pandas as pd
+
+df = pd.DataFrame({
+    "team": ["a", "b", "a", "b", "a"],
+    "score": [10, 7, 13, 9, 5],
+})
+
+scores = df["score"]
+best = df[df["score"] > 8]
+df["bonus"] = df["score"] * 2
+
+print(df.groupby("team")["score"].mean())
+`,
+  },
+];

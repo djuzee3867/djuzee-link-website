@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EXAMPLES, DEFAULT_CODE } from "./examples";
+import { EXAMPLES } from "./examples";
 import { highlightPython } from "./highlight";
 import TraceViz from "./TraceViz";
 import "./python.css";
@@ -11,6 +11,20 @@ const DEFAULT_CODE_WIDTH = 520;
 const MIN_CODE_WIDTH = 320;
 
 // typing an opener inserts the pair; typing the closer steps over it
+/* python modules exec'd into Pyodide, in dependency order */
+const PY_MODULES = [
+  ["pg_encoder", "/pythontutor/v3/pg_encoder.py"],
+  ["pg_logger", "/pythontutor/v3/pg_logger.py"],
+  ["viz_snap", "/pyviz/viz_snap.py"],
+  ["viz_explain", "/pyviz/viz_explain.py"],
+];
+
+/* packages worth their download only when the code asks for them */
+const PKG_IMPORTS = [
+  ["numpy", /^\s*(?:import|from)\s+numpy\b/m],
+  ["pandas", /^\s*(?:import|from)\s+pandas\b/m],
+];
+
 const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
 const CLOSERS = new Set([")", "]", "}", '"', "'"]);
 
@@ -254,7 +268,7 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
           spellCheck={false}
           className={`editor ${editorWrap ? "wrap" : ""}`}
           aria-label="Python code editor"
-          placeholder="# Write Python here, then press Ctrl+Enter"
+          placeholder="# Write Python here, or pick one from Examples"
         />
       </div>
     </div>
@@ -283,9 +297,10 @@ export default function PythonVisualizerPage() {
   const [pyodide, setPyodide] = useState(null);
   const [loadingPyodide, setLoadingPyodide] = useState(true);
   const [pyodideFailed, setPyodideFailed] = useState(false);
-  const [code, setCode] = useState(DEFAULT_CODE);
+  const [code, setCode] = useState("");
   const [runError, setRunError] = useState("");
   const [running, setRunning] = useState(false);
+  const [loadingPkg, setLoadingPkg] = useState("");
   const [trace, setTrace] = useState([]);
   const [step, setStep] = useState(0);
   const [errorLine, setErrorLine] = useState(null);
@@ -359,17 +374,31 @@ export default function PythonVisualizerPage() {
     };
   }, []);
 
-  const pgLoggerLoadedRef = useRef(false);
+  /* ---------- python runtime ----------
 
-  async function ensurePgLogger() {
-    if (!pyodide || pgLoggerLoadedRef.current) return;
-    const base = "/pythontutor/v3";
-    const [encSrc, logSrc] = await Promise.all([
-      fetch(`${base}/pg_encoder.py`).then((r) => r.text()),
-      fetch(`${base}/pg_logger.py`).then((r) => r.text()),
-    ]);
-    pyodide.globals.set("___enc_src___", encSrc);
-    pyodide.globals.set("___log_src___", logSrc);
+     numpy and pandas are ~12 MB and ~21 MB, so they are only fetched when the
+     code being run actually imports them. Loading one afterwards means the
+     Python side has to be rebuilt from source: viz_snap reads `import numpy` at
+     module level, and its patches wrap the tracer's own functions, so
+     re-installing them over an already-patched tracer would nest the wrappers. */
+
+  const pySourcesRef = useRef(null);
+  const loadedPkgsRef = useRef(new Set());
+  const bootstrappedRef = useRef(false);
+
+  async function pySources() {
+    if (!pySourcesRef.current) {
+      const texts = await Promise.all(
+        PY_MODULES.map(([, url]) => fetch(url).then((r) => r.text()))
+      );
+      pySourcesRef.current = PY_MODULES.map(([name], i) => [name, texts[i]]);
+    }
+    return pySourcesRef.current;
+  }
+
+  async function bootstrapPython() {
+    const sources = await pySources();
+    sources.forEach(([name, text]) => pyodide.globals.set(`___src_${name}___`, text));
     await pyodide.runPythonAsync(`
 import sys, types
 # stub optional custom modules used by pg_logger so imports don't fail
@@ -377,17 +406,36 @@ for _name in ('callback_module','ttt_module','html_module','htmlexample_module',
     if _name not in sys.modules:
         sys.modules[_name] = types.ModuleType(_name)
 
-m_enc = types.ModuleType('pg_encoder')
-exec(___enc_src___, m_enc.__dict__)
-sys.modules['pg_encoder'] = m_enc
+for _name in ('pg_encoder', 'pg_logger', 'viz_snap', 'viz_explain'):
+    _mod = types.ModuleType(_name)
+    _mod.__dict__['__name__'] = _name
+    exec(globals()['___src_' + _name + '___'], _mod.__dict__)
+    sys.modules[_name] = _mod
 
-m_log = types.ModuleType('pg_logger')
-exec(___log_src___, m_log.__dict__)
-sys.modules['pg_logger'] = m_log
+import pg_encoder, pg_logger, viz_snap, viz_explain
+viz_snap.install(pg_encoder, pg_logger)
+viz_explain.install(pg_logger)
 `);
-    pyodide.globals.delete("___enc_src___");
-    pyodide.globals.delete("___log_src___");
-    pgLoggerLoadedRef.current = true;
+    sources.forEach(([name]) => pyodide.globals.delete(`___src_${name}___`));
+  }
+
+  async function ensureRuntime(source) {
+    const missing = PKG_IMPORTS
+      .filter(([name, re]) => re.test(source) && !loadedPkgsRef.current.has(name))
+      .map(([name]) => name);
+
+    if (missing.length) {
+      setLoadingPkg(missing.join(" and "));
+      try {
+        await pyodide.loadPackage(missing);
+        missing.forEach((name) => loadedPkgsRef.current.add(name));
+      } finally {
+        setLoadingPkg("");
+      }
+    }
+    if (bootstrappedRef.current && !missing.length) return;
+    await bootstrapPython();
+    bootstrappedRef.current = true;
   }
 
   async function run(resume = false, inputsOverride = null) {
@@ -398,7 +446,7 @@ sys.modules['pg_logger'] = m_log
     setRunError("");
     setErrorLine(null);
     try {
-      await ensurePgLogger();
+      await ensureRuntime(source);
 
       const inputs = resume ? inputsOverride || rawInputsRef.current || [] : [];
       if (!resume) rawInputsRef.current = [];
@@ -478,16 +526,34 @@ json.dumps({'code': ___code_str___, 'trace': trace})
   // editing invalidates the error marker
   useEffect(() => { setErrorLine(null); }, [code]);
 
+  /* ---------- what this step draws ----------
+     An "explain" sub-step has no state of its own: it shows the frames and
+     objects of the step it hangs off, with its own panel laid over the top. */
+  const view = useMemo(() => {
+    const cur = trace[step];
+    if (!cur) return { entry: null, prev: null, explain: null };
+    const isSub = cur.event === "explain";
+    const base = isSub ? cur.parent : step;
+    // the previous *state*, skipping any sub-steps in between, so the cell
+    // diff compares against the last real step rather than against itself
+    let back = base - 1;
+    while (back >= 0 && trace[back].event === "explain") back -= 1;
+    return {
+      entry: trace[base] || null,
+      prev: back >= 0 ? trace[back] : null,
+      explain: isSub ? cur.explain : null,
+    };
+  }, [trace, step]);
+
   /* ---------- which lines the editor marks ---------- */
   const execLines = useMemo(() => {
-    const cur = trace[step];
+    const { entry: cur, prev } = view;
     if (!cur) return { cur: null, prev: null };
-    const prevEntry = step > 0 ? trace[step - 1] : null;
-    const prevLine = prevEntry ? prevEntry.line : null;
+    const prevLine = prev ? prev.line : null;
     const atEnd = step === trace.length - 1;
     const curLine = atEnd && prevLine === cur.line ? null : cur.line;
     return { cur: curLine, prev: prevLine };
-  }, [trace, step]);
+  }, [view, step, trace.length]);
 
   /* ---------- keyboard stepping ---------- */
   useEffect(() => {
@@ -527,8 +593,9 @@ json.dumps({'code': ___code_str___, 'trace': trace})
     window.addEventListener("pointerup", onUp);
   };
 
-  const entry = trace[step] || null;
+  const entry = view.entry;
   const total = trace.length;
+  const lineCount = code.trim() ? code.split("\n").length : 0;
   const terminated = total > 0 && step === total - 1 && !awaitingInput;
   const status = runError
     ? runError
@@ -552,15 +619,11 @@ json.dumps({'code': ___code_str___, 'trace': trace})
     >
       <header className="py-header">
         <div className="brand">
-          <span className="brand-mark">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <rect x="3" y="3" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
-              <rect x="13" y="3" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
-              <rect x="3" y="13" width="8" height="8" rx="2" stroke="currentColor" strokeWidth="2" />
-              <rect x="14" y="14" width="6" height="6" rx="1.5" fill="currentColor" />
-            </svg>
-          </span>
           <span className="brand-name">python visualizer</span>
+          <span className="brand-badge">
+            <span className="brand-badge-new">new</span>
+            supports <b>numpy</b> <i>·</i> <b>pandas</b>
+          </span>
         </div>
 
         <div className="header-right">
@@ -647,7 +710,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               <button
                 className={`run-btn ${running ? "busy" : ""}`}
                 onClick={() => run(false)}
-                disabled={!pyodide || running}
+                disabled={!pyodide || running || !code.trim()}
               >
                 {running ? (
                   <>
@@ -662,11 +725,19 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                 )}
               </button>
               <button className="ghost-btn" onClick={reset} disabled={running || !total}>Reset</button>
-              <span className={`state ${loadingPyodide ? "loading" : pyodideFailed ? "bad" : "ok"}`}>
-                {loadingPyodide ? "loading Python…" : pyodideFailed ? "failed to load" : "Python ready"}
+              <span
+                className={`state ${loadingPyodide || loadingPkg ? "loading" : pyodideFailed ? "bad" : "ok"}`}
+              >
+                {loadingPkg
+                  ? `downloading ${loadingPkg}…`
+                  : loadingPyodide
+                    ? "loading Python…"
+                    : pyodideFailed
+                      ? "failed to load"
+                      : "Python ready"}
               </span>
               <span className="steps-note">
-                {total ? `${total} steps` : `${code.split("\n").length} lines`}
+                {total ? `${total} steps` : lineCount ? `${lineCount} ${lineCount === 1 ? "line" : "lines"}` : ""}
               </span>
             </div>
 
@@ -700,7 +771,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
 
         <section className="canvas-pane">
           {total > 0 ? (
-            <TraceViz trace={trace} step={step} />
+            <TraceViz entry={view.entry} prev={view.prev} explain={view.explain} />
           ) : (
             <div className="canvas-empty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
