@@ -50,6 +50,11 @@ function cellClass(v) {
 
 const range = (n) => Array.from({ length: n }, (_, i) => i);
 
+/* Compares one encoded value against another. Anything absent stringifies to
+   `undefined`, which never equals a real value, so a slot or key that did not
+   exist a step ago reads as changed. */
+const stableKey = (v) => JSON.stringify(v);
+
 /* Only diff two snapshots that still describe the same table. Without this a
    reshape or a new column repaints every cell as changed, which says nothing. */
 function sameLayout(now, before) {
@@ -344,7 +349,21 @@ function Value({ value, path }) {
 
 function ObjectCard({ id, obj, prevObj, isNew, level }) {
   const d = describe(obj);
-  const prevSnap = isViz(prevObj) ? prevObj[1] : null;
+  // A card that has only just appeared is entirely new, so diffing its
+  // contents against nothing would just paint the whole thing.
+  const before = isNew ? null : prevObj;
+  const prevD = before ? describe(before) : null;
+  const changed = Boolean(before) && stableKey(obj) !== stableKey(before);
+  const prevSnap = isViz(before) ? before[1] : null;
+
+  // a set has no meaningful index, so comparing slot i to slot i is nonsense
+  const prevItems =
+    prevD && prevD.kind === "sequence" && d.indexed && prevD.indexed ? prevD.items : null;
+  const prevPairs =
+    prevD && prevD.kind === "pairs"
+      ? new Map(prevD.pairs.map(([k, v]) => [stableKey(k), stableKey(v)]))
+      : null;
+
   return (
     <div
       className={`tv-card ${isNew ? "is-new" : ""}`}
@@ -357,6 +376,7 @@ function ObjectCard({ id, obj, prevObj, isNew, level }) {
         {d.chip && <span className="tv-chip">{d.chip}</span>}
         {d.chips && d.chips.map((c) => <span className="tv-chip" key={c}>{c}</span>)}
         {isNew && <span className="tv-chip new">new</span>}
+        {changed && <span className="tv-chip changed">changed</span>}
       </div>
 
       {d.kind === "viz" && <VizBody snap={d.snap} prev={prevSnap} />}
@@ -364,28 +384,37 @@ function ObjectCard({ id, obj, prevObj, isNew, level }) {
       {d.kind === "sequence" && (
         <div className="tv-seq">
           {d.items.length === 0 && <span className="tv-empty-note">empty</span>}
-          {d.items.map((item, i) => (
-            <div className="tv-cell" key={i}>
-              {d.indexed && <span className="tv-idx">{i}</span>}
-              <span className="tv-slot">
-                <Value value={item} path={`${id}:${i}`} />
-              </span>
-            </div>
-          ))}
+          {d.items.map((item, i) => {
+            // a slot that did not exist before counts as changed: on a list
+            // being built up, the item that was just appended is the news
+            const moved = prevItems && stableKey(item) !== stableKey(prevItems[i]);
+            return (
+              <div className={`tv-cell ${moved ? "chg" : ""}`} key={i}>
+                {d.indexed && <span className="tv-idx">{i}</span>}
+                <span className="tv-slot">
+                  <Value value={item} path={`${id}:${i}`} />
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {d.kind === "pairs" && (
         <div className="tv-pairs">
           {d.pairs.length === 0 && <span className="tv-empty-note">empty</span>}
-          {d.pairs.map(([k, v], i) => (
-            <div className="tv-pair" key={i}>
-              <span className="tv-key">{typeof k === "string" ? k : primitiveText(k)}</span>
-              <span className="tv-slot">
-                <Value value={v} path={`${id}:${i}`} />
-              </span>
-            </div>
-          ))}
+          {d.pairs.map(([k, v], i) => {
+            const key = stableKey(k);
+            const moved = prevPairs && prevPairs.get(key) !== stableKey(v);
+            return (
+              <div className={`tv-pair ${moved ? "chg" : ""}`} key={i}>
+                <span className="tv-key">{typeof k === "string" ? k : primitiveText(k)}</span>
+                <span className="tv-slot">
+                  <Value value={v} path={`${id}:${i}`} />
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -396,23 +425,30 @@ function ObjectCard({ id, obj, prevObj, isNew, level }) {
   );
 }
 
-function Frame({ title, names, locals: vars, highlight, newNames, keyPrefix }) {
+function Frame({ title, names, locals: vars, highlight, prevVars, keyPrefix }) {
   return (
     <div className={`tv-frame ${highlight ? "is-active" : ""}`}>
       <div className="tv-frame-head">{title}</div>
       {names.length === 0 ? (
         <div className="tv-frame-empty">no variables yet</div>
       ) : (
-        names.map((name) => (
-          <div className="tv-var" key={name}>
-            <span className={`tv-var-name ${newNames.has(name) ? "is-new" : ""}`}>
-              {name === "__return__" ? "Return value" : name}
-            </span>
-            <span className="tv-slot">
-              <Value value={vars[name]} path={`${keyPrefix}:${name}`} />
-            </span>
-          </div>
-        ))
+        names.map((name) => {
+          const isNewName = Boolean(prevVars) && !(name in prevVars);
+          // rebinding a name is a change; mutating the object it points at is
+          // not — the reference stays the same and the object card says "changed"
+          const rebound =
+            Boolean(prevVars) && !isNewName && stableKey(prevVars[name]) !== stableKey(vars[name]);
+          return (
+            <div className={`tv-var ${rebound ? "chg" : ""}`} key={name}>
+              <span className={`tv-var-name ${isNewName ? "is-new" : ""}`}>
+                {name === "__return__" ? "Return value" : name}
+              </span>
+              <span className="tv-slot">
+                <Value value={vars[name]} path={`${keyPrefix}:${name}`} />
+              </span>
+            </div>
+          );
+        })
       )}
     </div>
   );
@@ -445,10 +481,14 @@ export default function TraceViz({ entry, prev, explain }) {
   const wrapRef = useRef(null);
   const [paths, setPaths] = useState([]);
 
-  // objects and names that appeared at this step get a subtle highlight
+  // what the previous step held, so cards, cells and frame rows can each say
+  // what moved. Null when there is no previous step: nothing to compare against.
   const prevHeap = prev ? prev.heap || {} : {};
   const prevHeapIds = new Set(prev ? Object.keys(prevHeap) : []);
-  const prevGlobals = new Set(prev ? prev.ordered_globals || [] : []);
+  const prevGlobalVars = prev ? prev.globals || {} : null;
+  const prevLocalsByFrame = new Map(
+    (prev ? prev.stack_to_render || [] : []).map((f) => [f.frame_id, f.encoded_locals || {}])
+  );
 
   const measure = useCallback(() => {
     const wrap = wrapRef.current;
@@ -546,7 +586,7 @@ export default function TraceViz({ entry, prev, explain }) {
             title="Global frame"
             names={entry.ordered_globals || []}
             locals={entry.globals || {}}
-            newNames={new Set((entry.ordered_globals || []).filter((n) => !prevGlobals.has(n)))}
+            prevVars={prevGlobalVars}
             keyPrefix="g"
             highlight={!(entry.stack_to_render || []).length}
           />
@@ -556,7 +596,7 @@ export default function TraceViz({ entry, prev, explain }) {
               title={f.func_name}
               names={f.ordered_varnames || []}
               locals={f.encoded_locals || {}}
-              newNames={new Set()}
+              prevVars={prevLocalsByFrame.get(f.frame_id) || null}
               keyPrefix={`f${f.frame_id}`}
               highlight={f.is_highlighted}
             />

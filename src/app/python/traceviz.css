@@ -21,6 +21,9 @@
   --tv-sel-bg: rgba(124, 124, 240, 0.32);
   --tv-sel-line: rgba(155, 140, 255, 0.8);
   --tv-sel-ink: #e6e3ff;
+  --tv-mark-bg: rgba(251, 191, 36, 0.2);
+  --tv-mark-line: rgba(251, 191, 36, 0.45);
+  --tv-mark-ink: #fbbf24;
 
   position: relative;
   flex: 1;
@@ -39,6 +42,9 @@
   --tv-sel-bg: rgba(91, 91, 214, 0.3);
   --tv-sel-line: rgba(91, 91, 214, 0.85);
   --tv-sel-ink: #23237a;
+  --tv-mark-bg: rgba(180, 83, 9, 0.15);
+  --tv-mark-line: rgba(180, 83, 9, 0.5);
+  --tv-mark-ink: #8a3d06;
 }
 
 /* ---------- the two columns and the connector layer ---------- */
@@ -164,6 +170,15 @@
   background: var(--mark-prev);
   color: var(--tv-green);
 }
+/* amber, not green: "this object moved" is a different claim from the green
+   cells, which say exactly which parts of it moved */
+.tv-chip.changed {
+  /* the fill alone is a 1.2:1 tint on a light card, so the chip needs an edge
+     to read as a chip rather than as stray text */
+  border-color: var(--tv-mark-line);
+  background: var(--tv-mark-bg);
+  color: var(--tv-mark-ink);
+}
 
 .tv-seq { display: flex; flex-wrap: wrap; padding: 10px; }
 .tv-cell {
@@ -197,6 +212,30 @@
   font-size: 12px;
   color: var(--tv-accent);
   min-width: 54px;
+}
+
+/* a value that differs from the previous step, in the places that are not
+   grids: list slots, dict/attribute rows, and frame variables */
+.tv-cell.chg {
+  border-color: var(--tv-chg-line);
+  background: var(--tv-chg-bg);
+}
+.tv-cell.chg + .tv-cell { border-left-color: var(--tv-chg-line); }
+.tv-cell.chg .tv-idx {
+  color: var(--tv-chg-ink);
+  border-bottom-color: var(--tv-chg-line);
+}
+.tv-pair.chg .tv-slot,
+.tv-var.chg .tv-slot {
+  border-radius: 5px;
+  background: var(--tv-chg-bg);
+  box-shadow: inset 0 0 0 1px var(--tv-chg-line);
+}
+.tv-cell.chg .tv-prim,
+.tv-pair.chg .tv-prim,
+.tv-var.chg .tv-prim {
+  color: var(--tv-chg-ink);
+  font-weight: 700;
 }
 
 .tv-slot {
