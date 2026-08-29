@@ -9,6 +9,8 @@ import "./python.css";
 const STORAGE_KEY = "py-visualizer-state";
 const DEFAULT_CODE_WIDTH = 520;
 const MIN_CODE_WIDTH = 320;
+const DEFAULT_OUT_HEIGHT = 200;
+const MIN_OUT_HEIGHT = 64;
 
 // typing an opener inserts the pair; typing the closer steps over it
 /* python modules exec'd into Pyodide, in dependency order */
@@ -309,7 +311,9 @@ export default function PythonVisualizerPage() {
   const [shown, setShown] = useState(false);
   const [theme, setTheme] = useState("dark");
   const [codeWidth, setCodeWidth] = useState(DEFAULT_CODE_WIDTH);
+  const [outHeight, setOutHeight] = useState(DEFAULT_OUT_HEIGHT);
   const [dragging, setDragging] = useState(false);
+  const [draggingRow, setDraggingRow] = useState(false);
   const [editorWrap, setEditorWrap] = useState(false);
   const [editorFont, setEditorFont] = useState(14);
 
@@ -330,6 +334,7 @@ export default function PythonVisualizerPage() {
         if (typeof saved.font === "number") setEditorFont(saved.font);
         if (typeof saved.wrap === "boolean") setEditorWrap(saved.wrap);
         if (typeof saved.width === "number") setCodeWidth(saved.width);
+        if (typeof saved.outHeight === "number") setOutHeight(saved.outHeight);
         if (saved.theme === "light" || saved.theme === "dark") setTheme(saved.theme);
       }
     } catch {}
@@ -342,12 +347,19 @@ export default function PythonVisualizerPage() {
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ code, font: editorFont, wrap: editorWrap, width: codeWidth, theme })
+          JSON.stringify({
+            code,
+            font: editorFont,
+            wrap: editorWrap,
+            width: codeWidth,
+            outHeight,
+            theme,
+          })
         );
       } catch {}
     }, 300);
     return () => clearTimeout(t);
-  }, [code, editorFont, editorWrap, codeWidth, theme]);
+  }, [code, editorFont, editorWrap, codeWidth, outHeight, theme]);
 
   /* ---------- Pyodide ---------- */
   useEffect(() => {
@@ -593,6 +605,26 @@ json.dumps({'code': ___code_str___, 'trace': trace})
     window.addEventListener("pointerup", onUp);
   };
 
+  const startDragRow = (e) => {
+    e.preventDefault();
+    setDraggingRow(true);
+    const column = e.currentTarget.parentElement;
+    const onMove = (ev) => {
+      const box = column.getBoundingClientRect();
+      // measured from the bottom rather than accumulated from the start, so a
+      // drag that runs past the clamp does not leave the handle behind the cursor
+      const max = Math.max(MIN_OUT_HEIGHT, box.height - 180);
+      setOutHeight(Math.round(Math.min(max, Math.max(MIN_OUT_HEIGHT, box.bottom - ev.clientY))));
+    };
+    const onUp = () => {
+      setDraggingRow(false);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
   const entry = view.entry;
   const total = trace.length;
   const lineCount = code.trim() ? code.split("\n").length : 0;
@@ -613,7 +645,9 @@ json.dumps({'code': ___code_str___, 'trace': trace})
 
   return (
     <div
-      className={`py-root ${shown ? "show" : ""} ${dragging ? "dragging" : ""}`}
+      className={`py-root ${shown ? "show" : ""} ${dragging ? "dragging" : ""} ${
+        draggingRow ? "dragging-row" : ""
+      }`}
       data-theme={theme}
       style={{ "--code-width": `${codeWidth}px` }}
     >
@@ -646,7 +680,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
       </header>
 
       <main className="py-main">
-        <div className="left-col">
+        <div className="left-col" style={{ "--out-height": `${outHeight}px` }}>
           <section className="pane code-pane">
             <div className="pane-head">
               <span className="pane-title">Code</span>
@@ -748,6 +782,18 @@ json.dumps({'code': ___code_str___, 'trace': trace})
             )}
           </section>
 
+          <div
+            className="splitter splitter-h"
+            onPointerDown={startDragRow}
+            onDoubleClick={() => setOutHeight(DEFAULT_OUT_HEIGHT)}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the output panel"
+            title="Drag to resize, double-click to reset"
+          >
+            <span />
+          </div>
+
           <section className="pane out-pane">
             <div className="pane-head">
               <span className="pane-title">Print output (stdout)</span>
@@ -758,7 +804,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
         </div>
 
         <div
-          className="splitter"
+          className="splitter splitter-v"
           onPointerDown={startDrag}
           onDoubleClick={() => setCodeWidth(DEFAULT_CODE_WIDTH)}
           role="separator"
