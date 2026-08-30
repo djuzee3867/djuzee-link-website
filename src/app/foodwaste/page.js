@@ -1,771 +1,444 @@
 "use client";
-import { useState } from "react";
+
+/* The conference paper "A Comparison of Machine Learning and Deep Learning
+   Models for Calories Burn Prediction" (MJU 7th National Conference on Science
+   Technology and Innovation, 27 March 2026) as a web page. Every figure and
+   number here comes from the deck and the abstract. */
+
+import { useEffect, useState } from "react";
 import "./foodwaste.css";
-import Image from "next/image";
-import pic from "./main.png";
 
+const PREFS_KEY = "foodwaste-theme";
 
-const PRICE_PER_KCAL = 0.098; // บาท/kcal — จากเส้นความยากจนคนไทย
+const MODELS = [
+  {
+    id: "xgboost",
+    name: "XGBoost",
+    kind: "Gradient boosted trees",
+    blurb:
+      "Trees are added one at a time, each fitted to the error the ones before it left behind; the predictions are summed.",
+    maeTrain: 0.9445,
+    maeTest: 1.0991,
+    mse: 2.4315,
+    r2: 99.9398,
+  },
+  {
+    id: "catboost",
+    name: "CatBoost",
+    kind: "Gradient boosted trees",
+    blurb:
+      "Also boosting, but ordered so a row's own target never leaks into the tree that predicts it, which keeps the loss from drifting.",
+    maeTrain: 0.8909,
+    maeTest: 0.9139,
+    mse: 1.5665,
+    r2: 99.9612,
+  },
+  {
+    id: "mlp",
+    name: "Multi-Layer Perceptron",
+    kind: "Deep learning",
+    blurb:
+      "An input layer, hidden layers and an output layer. The hidden layers are what let it bend to the non-linear relationship between duration and heart rate.",
+    maeTrain: 0.3091,
+    maeTest: 0.322,
+    mse: 0.1652,
+    r2: 99.9959,
+    best: true,
+  },
+];
 
-function computeDerived(gender, age, height, weight, duration) {
-  const g = gender === "male" ? 1 : 0;
-  
-  // 1. สูตร BMI: kg / (m*m)
-  const heightInMeter = height / 100;
-  const bmi = weight / (heightInMeter * heightInMeter);
-  
-  // 2. ปรับสมการ Body_Temp ให้สมจริงทางสรีรวิทยา
-  const baseTemp = age < 60 ? 37.0 : 36.8;
-  const bodyTemp = baseTemp + (0.015 * duration);
-  
-  // 3. ปรับสมการ Heart_Rate ให้การเต้นของหัวใจไม่พุ่งสูงเกินมนุษย์ปกติ
-  const heartRate = 80 + (duration * 0.6) + (0.014 * bodyTemp) - (0.13 * g) - (0.05 * age);
-  
-  return { bmi, heartRate, bodyTemp };
+const FIGURES = [
+  {
+    key: "fit",
+    label: "Actual vs predicted",
+    caption: "Predicted calories against the true value. The tighter the points hug the diagonal, the better.",
+  },
+  {
+    key: "learning",
+    label: "Learning curve",
+    caption: "Training and validation error as the training set grows. Curves that meet and flatten mean neither under- nor overfitting.",
+  },
+  {
+    key: "residual",
+    label: "Residual plot",
+    caption: "Error against predicted value. A flat random band around zero is what a well-specified model looks like.",
+  },
+];
+
+const FIGURE_FILE = {
+  "xgboost-fit": "/foodwaste/xgboost-fit.png",
+  "xgboost-learning": "/foodwaste/xgboost-learning.png",
+  "xgboost-residual": "/foodwaste/xgboost-residual.png",
+  "catboost-fit": "/foodwaste/catboost-fit.png",
+  "catboost-learning": "/foodwaste/catboost-learning.png",
+  "catboost-residual": "/foodwaste/catboost-residual.png",
+  "mlp-fit": "/foodwaste/mlp-fit.png",
+  "mlp-learning": "/foodwaste/mlp-learning.png",
+  "mlp-residual": "/foodwaste/mlp-residual.jpg",
+};
+
+const STEPS = [
+  { no: "01", name: "Data overview", note: "15,000 records of calorie burn" },
+  { no: "02", name: "Preprocessing", note: "encode, scale, select features" },
+  { no: "03", name: "Data splitting", note: "12,000 train / 3,000 test" },
+  { no: "04", name: "Model evaluation", note: "MSE, MAE, R²" },
+  { no: "05", name: "Result", note: "compare the three models" },
+];
+
+function Section({ no, title, id, children }) {
+  return (
+    <section className="fw-section" id={id}>
+      <div className="fw-section-head">
+        <span className="fw-section-no">{no}</span>
+        <h2>{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
 }
 
-function mockANN(gender, age, height, weight, duration) {
-  const { heartRate } = computeDerived(gender, age, height, weight, duration);
-  const gFactor = gender === "male" ? 1.0 : 0.85;
-  const met = 3.5 + (heartRate - 70) * 0.05;
-  const kcal = (met * weight * duration) / 200 * gFactor;
-  return Math.max(1, kcal);
-}
+export default function CaloriesBurnPage() {
+  const [theme, setTheme] = useState("dark");
+  const [figure, setFigure] = useState("fit");
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(PREFS_KEY);
+      if (saved === "light" || saved === "dark") setTheme(saved);
+    } catch {}
+  }, []);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREFS_KEY, theme);
+    } catch {}
+  }, [theme]);
 
-
-function ModelVisualizer() {
-  const [activeTab, setActiveTab] = useState("ann");
-  const [hoverInfo, setHoverInfo] = useState({
-    title: "แตะหรือเลื่อนเมาส์ที่กราฟิก",
-    desc: "เพื่อดูคำอธิบายการทำงานเชิงลึกของแต่ละส่วนในโครงสร้างโมเดล พร้อมสูตรและตัวแปรที่ใช้"
-  });
-
-  const defaultInfo = {
-    title: "แตะหรือเลื่อนเมาส์ที่กราฟิก",
-    desc: "เพื่อดูคำอธิบายการทำงานเชิงลึกของแต่ละส่วนในโครงสร้างโมเดล พร้อมสูตรและตัวแปรที่ใช้"
-  };
-
-
-
-  const handleHover = (title, desc) => setHoverInfo({ title, desc });
-  const handleLeave = () => setHoverInfo(defaultInfo);
-
-  // SVG รูปต้นไม้สำหรับ Random Forest (XGBoost ถูกแยกวาดต่างหากแล้ว)
-  const SVHTree = ({ primary, secondary, leaf }) => (
-    <svg viewBox="0 0 120 100" className="fw-tree-svg">
-      <path d="M60,15 L30,45 M60,15 L90,45 M30,45 L15,75 M30,45 L45,75 M90,45 L75,75 M90,45 L105,75" stroke="var(--border2)" strokeWidth="3" fill="none" />
-      <circle cx="60" cy="15" r="10" fill={primary} />
-      <circle cx="30" cy="45" r="8" fill={secondary} />
-      <circle cx="90" cy="45" r="8" fill={secondary} />
-      <rect x="7" y="70" width="16" height="16" rx="4" fill={leaf} />
-      <rect x="37" y="70" width="16" height="16" rx="4" fill={leaf} />
-      <rect x="67" y="70" width="16" height="16" rx="4" fill={leaf} />
-      <rect x="97" y="70" width="16" height="16" rx="4" fill={leaf} />
-    </svg>
-  );
-
-  const renderANN = () => {
-    const inputs = [40, 100, 160, 220, 280]; 
-    const h1 = [70, 130, 190, 250];          
-    const h2 = [70, 130, 190, 250];          
-    const out = [160];                       
-
-    // ขยับพิกัดแกน X ไปทางขวาเพิ่มเป็น xIn=160 เพื่อไม่ให้ข้อความชิดขอบจอเกินไป
-    const xIn = 160, xH1 = 320, xH2 = 480, xOut = 600;
-
-    const lines = [];
-    inputs.forEach(y1 => h1.forEach(y2 => lines.push(<line key={`in-${y1}-${y2}`} x1={xIn} y1={y1} x2={xH1} y2={y2} className="fw-ann-line" />)));
-    h1.forEach(y1 => h2.forEach(y2 => lines.push(<line key={`h1-${y1}-${y2}`} x1={xH1} y1={y1} x2={xH2} y2={y2} className="fw-ann-line" />)));
-    h2.forEach(y1 => out.forEach(y2 => lines.push(<line key={`out-${y1}-${y2}`} x1={xH2} y1={y1} x2={xOut} y2={y2} className="fw-ann-line" />)));
-
-    const inputLabels = ["x₁ (Gender)", "x₂ (Age)", "x₃ (Weight)", "x₄ (Height)", "x₅ (etc)"];
-    
-    
-    return (
-      <svg viewBox="0 0 750 320" className="fw-ann-svg">
-        {lines}
-        
-        {/* Input Layer Group */}
-        <g className="fw-ann-box-group fw-anim-fast fw-delay-1" onMouseEnter={() => handleHover("Input Layer", "รับค่าตัวแปรอิสระที่ดึงจากข้อมูลผู้ใช้งานเข้าสู่กระบวนการคำนวณ")} onTouchStart={() => handleHover("Input Layer", "รับค่าตัวแปรอิสระที่ดึงจากข้อมูลผู้ใช้งานเข้าสู่กระบวนการคำนวณ")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-          <rect x={xIn - 35} y="10" width="70" height="300" className="fw-ann-box" />
-          {inputs.map((y, i) => (
-            <g key={`in-${i}`}>
-              <circle cx={xIn} cy={y} r="14" className="fw-ann-node" />
-              <text x={xIn - 25} y={y+4} textAnchor="end" className="fw-ann-text">{inputLabels[i]}</text>
-            </g>
-          ))}
-          <text x={xIn} y="330" textAnchor="middle" className="fw-ann-text">Input Layer</text>
-        </g>
-
-        {/* Hidden Layer 1 Group */}
-        <g className="fw-ann-box-group fw-anim-fast fw-delay-2" onMouseEnter={() => handleHover("Hidden Layer 1", "สกัด Feature ซ่อนเร้นและเรียนรู้ข้อมูลด้วย Activation Function")} onTouchStart={() => handleHover("Hidden Layer 1", "สกัด Feature ซ่อนเร้นและเรียนรู้ข้อมูลด้วย Activation Function")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-          <rect x={xH1 - 30} y="40" width="60" height="240" className="fw-ann-box" />
-          {h1.map((y, i) => (
-            <g key={`h1-${i}`}>
-              <circle cx={xH1} cy={y} r="16" className="fw-ann-node" />
-              <text x={xH1} y={y+4} textAnchor="middle" className="fw-ann-text">h₁</text>
-            </g>
-          ))}
-          <text x={xH1} y="300" textAnchor="middle" className="fw-ann-text">Hidden Layer 1</text>
-        </g>
-
-        {/* Hidden Layer 2 Group */}
-        <g className="fw-ann-box-group fw-anim-fast fw-delay-3" onMouseEnter={() => handleHover("Hidden Layer 2", "ประมวลผลความสัมพันธ์เชิงซ้อน (Non-Linear) ขั้นลึก")} onTouchStart={() => handleHover("Hidden Layer 2", "ประมวลผลความสัมพันธ์เชิงซ้อน (Non-Linear) ขั้นลึก")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-          <rect x={xH2 - 30} y="40" width="60" height="240" className="fw-ann-box" />
-          {h2.map((y, i) => (
-            <g key={`h2-${i}`}>
-              <circle cx={xH2} cy={y} r="16" className="fw-ann-node" />
-              <text x={xH2} y={y+4} textAnchor="middle" className="fw-ann-text">h₂</text>
-            </g>
-          ))}
-          <text x={xH2} y="300" textAnchor="middle" className="fw-ann-text">Hidden Layer 2</text>
-        </g>
-
-        {/* Output Layer Group (Final = Orange) */}
-        <g className="fw-ann-box-group fw-anim-fast fw-delay-4" onMouseEnter={() => handleHover("Output Layer (Final Prediction)", "รวบรวมค่าน้ำหนักเพื่อส่งออกเป็นค่าเป้าหมาย (ŷ) คลอรี่ที่เผาผลาญ")} onTouchStart={() => handleHover("Output Layer (Final Prediction)", "รวบรวมค่าน้ำหนักเพื่อส่งออกเป็นค่าเป้าหมาย (ŷ) คลอรี่ที่เผาผลาญ")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-          <rect x={xOut - 30} y="130" width="60" height="60" className="fw-ann-box" style={{stroke: 'var(--orange)'}} />
-          <circle cx={xOut} cy={out[0]} r="20" className="fw-ann-node final-node" />
-          <text x={xOut} y={out[0]+4} textAnchor="middle" className="fw-ann-text fw-ann-text-hl" style={{color: 'var(--orange2)'}}>ŷ</text>
-          <text x={xOut + 35} y={out[0]+4} className="fw-ann-text fw-ann-text-hl"></text>
-          <text x={xOut} y="215" textAnchor="middle" className="fw-ann-text fw-ann-text-hl">Output</text>
-        </g>
-      </svg>
-    );
-  };
-
-  // กราฟิกใหม่สำหรับ XGBoost ตรงตามรูปเป๊ะๆ พร้อมโทนสีน้ำเงิน/แดง และ Final สีส้ม
-  const renderXGB = () => (
-    <svg viewBox="0 0 750 420" className="fw-xgb3-svg">
-      <defs>
-        <marker id="arrow-muted" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)" />
-        </marker>
-        <marker id="arrow-res" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text)" />
-        </marker>
-      </defs>
-
-      {/* Step 1: Instance */}
-      <g className="fw-xgb3-box-group fw-anim-fast fw-delay-1" onMouseEnter={() => handleHover("Instance", "ข้อมูลต้นฉบับที่นำเข้าสู่กระบวนการ Training")} onTouchStart={() => handleHover("Instance", "ข้อมูลต้นฉบับที่นำเข้าสู่กระบวนการ Training")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-         <rect x="300" y="10" width="150" height="30" className="fw-xgb3-box" />
-         <text x="375" y="25" className="fw-xgb3-text" style={{fontWeight:'bold'}}>Dataset</text>
-      </g>
-
-      {/* Lines Instance -> Subsets */}
-      <g className="fw-anim-fast fw-delay-2">
-         <path d="M375,40 L375,55 L175,55 L175,65" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-         <path d="M375,40 L375,65" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-         <path d="M375,40 L375,55 L575,55 L575,65" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-      </g>
-
-      {/* Step 2: Random Subsets */}
-      <g className="fw-anim-fast fw-delay-2">
-         {[175, 375, 575].map(cx => (
-           <g key={`sub-${cx}`} className="fw-xgb3-box-group" onMouseEnter={() => handleHover("Random Subset", "สุ่มตัวอย่างข้อมูลย่อย (Subsampling) เพื่อลดปัญหา Overfitting")} onTouchStart={() => handleHover("Random Subset", "สุ่มตัวอย่างข้อมูลย่อย (Subsampling) เพื่อลดปัญหา Overfitting")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-             <rect x={cx-55} y="70" width="110" height="24" className="fw-xgb3-box" />
-             <text x={cx} y="82" className="fw-xgb3-text fw-xgb3-text-small">Random Subset</text>
-           </g>
-         ))}
-      </g>
-
-      {/* Lines Subset -> Tree */}
-      <g className="fw-anim-fast fw-delay-3">
-         {[175, 375, 575].map(cx => <line key={`l-tr-${cx}`} x1={cx} y1="94" x2={cx} y2="105" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" /> )}
-      </g>
-
-      {/* Step 3: Trees */}
-      <g className="fw-anim-fast fw-delay-3" onMouseEnter={() => handleHover("Sequential Trees", "สร้างต้นไม้ตัดสินใจทีละต้น แต่ละต้นโฟกัสแก้ข้อผิดพลาดของต้นก่อนหน้า")} onTouchStart={() => handleHover("Sequential Trees", "สร้างต้นไม้ตัดสินใจทีละต้น แต่ละต้นโฟกัสแก้ข้อผิดพลาดของต้นก่อนหน้า")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-         {[175, 375, 575].map(cx => <rect key={`tb-${cx}`} x={cx-75} y="110" width="150" height="150" className="fw-xgb3-box" /> )}
-         
-         {/* Tree 1 */}
-         <g transform="translate(175, 125)">
-            <path d="M0,10 L-25,45 M0,10 L25,45 M-25,45 L-40,85 M-25,45 L-10,85 M25,45 L10,85 M25,45 L40,85" className="fw-xgb3-line" />
-            <circle cx="0" cy="10" r="12" className="fw-xgb3-node-b" />
-            <circle cx="-25" cy="45" r="10" className="fw-xgb3-node-b" />
-            <circle cx="25" cy="45" r="10" className="fw-xgb3-node-r" />
-            <circle cx="-40" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="-10" cy="85" r="10" className="fw-xgb3-node-b" />
-            <circle cx="10" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="40" cy="85" r="10" className="fw-xgb3-node-r" />
-            <text x="0" y="115" className="fw-xgb3-text" style={{fontWeight:'bold'}}>Tree 1</text>
-         </g>
-
-         {/* Tree 2 */}
-         <g transform="translate(375, 125)">
-            <path d="M0,10 L-25,45 M0,10 L25,45 M-25,45 L-40,85 M-25,45 L-10,85 M25,45 L10,85 M25,45 L40,85" className="fw-xgb3-line" />
-            <circle cx="0" cy="10" r="12" className="fw-xgb3-node-b" />
-            <circle cx="-25" cy="45" r="10" className="fw-xgb3-node-r" />
-            <circle cx="25" cy="45" r="10" className="fw-xgb3-node-b" />
-            <circle cx="-40" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="-10" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="10" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="40" cy="85" r="10" className="fw-xgb3-node-b" />
-            <text x="0" y="115" className="fw-xgb3-text" style={{fontWeight:'bold'}}>Tree 2</text>
-         </g>
-
-         {/* Tree 3 */}
-         <g transform="translate(575, 125)">
-            <text x="-80" y="45" className="fw-xgb3-text" style={{fontSize: '24px', fill: 'var(--muted)', fontWeight:'bold'}}>...</text>
-            <path d="M0,10 L-25,45 M0,10 L25,45 M-25,45 L-40,85 M-25,45 L-10,85 M25,45 L10,85 M25,45 L40,85" className="fw-xgb3-line" />
-            <circle cx="0" cy="10" r="12" className="fw-xgb3-node-b" />
-            <circle cx="-25" cy="45" r="10" className="fw-xgb3-node-b" />
-            <circle cx="25" cy="45" r="10" className="fw-xgb3-node-r" />
-            <circle cx="-40" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="-10" cy="85" r="10" className="fw-xgb3-node-b" />
-            <circle cx="10" cy="85" r="10" className="fw-xgb3-node-r" />
-            <circle cx="40" cy="85" r="10" className="fw-xgb3-node-r" />
-            <text x="0" y="115" className="fw-xgb3-text" style={{fontWeight:'bold'}}>Tree n</text>
-         </g>
-      </g>
-
-      {/* Lines Tree -> Result */}
-      <g className="fw-anim-fast fw-delay-4">
-         {[175, 375, 575].map(cx => <line key={`l-res-${cx}`} x1={cx} y1="260" x2={cx} y2="275" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" /> )}
-      </g>
-
-      {/* Step 4: Results */}
-      <g className="fw-anim-fast fw-delay-4">
-         {[1, 2, 'n'].map((num, i) => {
-           const cx = 175 + (i*200);
-           return (
-             <g key={`res-${num}`} className="fw-xgb3-box-group" onMouseEnter={() => handleHover("Prediction Results", "ผลทำนายย่อยจากต้นไม้แต่ละต้น นำไปชดเชยข้อผิดพลาดกันและกัน")} onTouchStart={() => handleHover("Prediction Results", "ผลทำนายย่อยจากต้นไม้แต่ละต้น นำไปชดเชยข้อผิดพลาดกันและกัน")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-               <rect x={cx-35} y="280" width="70" height="24" className="fw-xgb3-box" />
-               <text x={cx} y="292" className="fw-xgb3-text">Result {num}</text>
-             </g>
-           );
-         })}
-      </g>
-
-      {/* Step 5: Residual Arrows */}
-      <g className="fw-anim-fast fw-delay-5" onMouseEnter={() => handleHover("Residuals (ข้อผิดพลาด)", "ส่วนต่างระหว่างค่าจริงกับผลทำนาย (Error) จะถูกส่งไปเป็น 'เป้าหมาย' ให้ต้นไม้ถัดไปเรียนรู้")} onTouchStart={() => handleHover("Residuals (ข้อผิดพลาด)", "ส่วนต่างระหว่างค่าจริงกับผลทำนาย (Error) จะถูกส่งไปเป็น 'เป้าหมาย' ให้ต้นไม้ถัดไปเรียนรู้")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-         <path d="M210,292 L250,292 L250,105 L290,105" className="fw-xgb3-line-res" markerEnd="url(#arrow-res)" />
-         <text x="240" y="278" className="fw-xgb3-text fw-xgb3-text-small" transform="rotate(-30 240 278)"></text>
-         
-         <path d="M410,292 L450,292 L450,105 L490,105" className="fw-xgb3-line-res" markerEnd="url(#arrow-res)" />
-         <text x="440" y="278" className="fw-xgb3-text fw-xgb3-text-small" transform="rotate(-30 440 278)"></text>
-      </g>
-
-      {/* Lines Result -> Weighting */}
-      <g className="fw-anim-fast fw-delay-6">
-         <path d="M175,304 L175,320 L375,320 L375,335" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-         <path d="M375,304 L375,335" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-         <path d="M575,304 L575,320 L375,320 L375,335" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-      </g>
-
-      {/* Step 6: Weighting */}
-      <g className="fw-xgb3-box-group fw-anim-fast fw-delay-6" onMouseEnter={() => handleHover("Weighting (Learning Rate)", "ลดทอนน้ำหนักผลทำนายของต้นไม้แต่ละต้นด้วย Learning Rate (η) ก่อนรวมกัน")} onTouchStart={() => handleHover("Weighting (Learning Rate)", "ลดทอนน้ำหนักผลทำนายของต้นไม้แต่ละต้นด้วย Learning Rate (η) ก่อนรวมกัน")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-         <rect x="275" y="340" width="200" height="30" className="fw-xgb3-box" />
-         <text x="375" y="355" className="fw-xgb3-text" style={{fontWeight:'bold'}}>Weighting</text>
-      </g>
-
-      {/* Line Weighting -> Final */}
-      <g className="fw-anim-fast fw-delay-7">
-         <line x1="375" y1="370" x2="375" y2="385" className="fw-xgb3-line" markerEnd="url(#arrow-muted)" />
-      </g>
-
-      {/* Final Prediction (Orange) */}
-      <g className="fw-xgb3-box-group fw-anim-fast fw-delay-7" onMouseEnter={() => handleHover("Final Prediction", "ผลรวมสุทธิของต้นไม้ทุกต้น (Ensemble) ซึ่งให้ความแม่นยำสูงมาก")} onTouchStart={() => handleHover("Final Prediction", "ผลรวมสุทธิของต้นไม้ทุกต้น (Ensemble) ซึ่งให้ความแม่นยำสูงมาก")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-         <rect x="300" y="390" width="150" height="34" className="fw-xgb3-box fw-xgb3-box-final" />
-         <text x="375" y="407" className="fw-xgb3-text fw-xgb3-text-final">Final Result</text>
-      </g>
-    </svg>
-  );
+  const active = FIGURES.find((f) => f.key === figure) || FIGURES[0];
 
   return (
-    <div className="fw-vis">
-      <div className="fw-vis__tabs">
-        <button className={`fw-vis__tab ${activeTab === "ann" ? "fw-vis__tab--active" : ""}`} onClick={() => setActiveTab("ann")}>ANN</button>
-        <button className={`fw-vis__tab ${activeTab === "xgb" ? "fw-vis__tab--active" : ""}`} onClick={() => setActiveTab("xgb")}>XGBoost</button>
-        <button className={`fw-vis__tab ${activeTab === "rf" ? "fw-vis__tab--active" : ""}`} onClick={() => setActiveTab("rf")}>Random Forest</button>
-        <button className={`fw-vis__tab ${activeTab === "poly" ? "fw-vis__tab--active" : ""}`} onClick={() => setActiveTab("poly")}>Polynomial</button>
-      </div>
+    <div className="fw-root" data-theme={theme}>
+      <header className="fw-header">
+        <div className="fw-brand">
+          <span className="fw-brand-name">calories burn prediction</span>
+          <span className="fw-brand-note">MJU 7th National Conference · 2026</span>
+        </div>
+        <div className="fw-header-right">
+          <button
+            type="button"
+            className="fw-icon-btn"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+            aria-label="Toggle theme"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+              <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" />
+            </svg>
+          </button>
+          <a className="fw-btn" href="/">Home</a>
+        </div>
+      </header>
 
-      <div className="fw-vis__canvas">
-        <div className="fw-vis__scroll-inner">
-        {/* === 1. ANN === */}
-        {activeTab === "ann" && renderANN()}
-
-        {/* === 2. XGBoost (New Visual) === */}
-        {activeTab === "xgb" && renderXGB()}
-
-        {/* === 3. Random Forest === */}
-        {activeTab === "rf" && (
-          <div className="fw-rf-container">
-            <div className="fw-rf-data fw-anim-fast fw-delay-1" onMouseEnter={() => handleHover("Dataset D (N records)", "ชุดข้อมูลตั้งต้นทั้งหมด 15,000 รายการ")} onTouchStart={() => handleHover("Dataset D (N records)", "ชุดข้อมูลตั้งต้นทั้งหมด 15,000 รายการ")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-              Dataset
-            </div>
-            
-            <div className="fw-rf-branches">
-              {[1, 2, 'n'].map((num, idx) => (
-                // ปรับให้แอนิเมชันเร็วขึ้น
-                <div key={num} className="fw-rf-branch fw-anim-fast" style={{animationDelay: `${0.1 + (idx * 0.05)}s`}}>
-                  <div style={{color:'#ffffff'}}>↓</div>
-                  <div className="fw-rf-bag" onMouseEnter={() => handleHover("Bootstrap Aggregating (Bagging)", "สุ่มหยิบข้อมูลขึ้นมาสร้าง Dataset ย่อย ให้ต้นไม้มีเอกลักษณ์")} onTouchStart={() => handleHover("Bootstrap Aggregating (Bagging)", "สุ่มหยิบข้อมูลขึ้นมาสร้าง Dataset ย่อย ให้ต้นไม้มีเอกลักษณ์")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-                    Sample D_{num}
-                  </div>
-                  <div style={{color:'#ffffff)'}}>↓</div>
-                  <div className="fw-rf-treebox" onMouseEnter={() => handleHover(`Decision Tree ${num}`, `สร้างต้นไม้ตัดสินใจอิสระต้นที่ ${num}`)} onTouchStart={() => handleHover(`Decision Tree ${num}`, `สร้างต้นไม้ตัดสินใจอิสระต้นที่ ${num}`)} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-                     <SVHTree primary="var(--text2)" secondary="var(--muted)" leaf="var(--border2)" />
-                     <div style={{fontSize:'13px', color:'var(--text)', fontWeight:'bold', marginTop:'5px'}}>Tree {num}</div>
-                  </div>
-                  <div style={{color:'#ffffff'}}>↓</div>
-                  <div className="fw-rf-pred" onMouseEnter={() => handleHover(`Prediction ${num}`, "ผลทำนายของต้นไม้แต่ละต้น")} onTouchStart={() => handleHover(`Prediction ${num}`, "ผลทำนายของต้นไม้แต่ละต้น")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>ŷ_{num}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Final Prediction = Orange (เร็วขึ้นเป็น 0.3s) */}
-            <div className="fw-rf-agg fw-anim-fast" style={{animationDelay: '0.35s'}} onMouseEnter={() => handleHover("Aggregation (Averaging)", "นำผลทำนายจากต้นไม้ทุกต้นมาหาค่าเฉลี่ยเพื่อผลลัพธ์สุดท้าย")} onTouchStart={() => handleHover("Aggregation (Averaging)", "นำผลทำนายจากต้นไม้ทุกต้นมาหาค่าเฉลี่ยเพื่อผลลัพธ์สุดท้าย")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-              ∑(ŷᵢ) / N = Final Prediction ŷ
-            </div>
-          </div>
-        )}
-
-        {/* === 4. Polynomial Regression === */}
-        {activeTab === "poly" && (
-          <svg viewBox="0 0 600 320" className="fw-poly-svg" onMouseEnter={() => handleHover("Polynomial Curve", "การวิเคราะห์ถดถอยแบบพหุนาม โค้งรับกับการกระจายตัวที่ไม่เป็นเส้นตรง")} onTouchStart={() => handleHover("Polynomial Curve", "การวิเคราะห์ถดถอยแบบพหุนาม โค้งรับกับการกระจายตัวที่ไม่เป็นเส้นตรง")} onMouseLeave={handleLeave} onTouchEnd={handleLeave}>
-             {/* Grid */}
-             <g className="fw-poly-grid">
-               {[50, 100, 150, 200, 250].map(y => <line key={`g-h-${y}`} x1="40" y1={y} x2="560" y2={y} />)}
-               {[100, 200, 300, 400, 500].map(x => <line key={`g-v-${x}`} x1={x} y1="20" x2={x} y2="280" />)}
-             </g>
-
-             {/* Axes */}
-             <line x1="40" y1="280" x2="560" y2="280" className="fw-poly-axis" />
-             <line x1="40" y1="20" x2="40" y2="280" className="fw-poly-axis" />
-             <text x="300" y="310" textAnchor="middle" className="fw-poly-text">Independent Variable (X)</text>
-             <text x="20" y="150" textAnchor="middle" transform="rotate(-90 20 150)" className="fw-poly-text">Target (Y)</text>
-
-             {/* Formula (Final = Orange) */}
-             <g transform="translate(140, 30)" onMouseEnter={(e) => { e.stopPropagation(); handleHover("Polynomial Equation", "สูตรคณิตศาสตร์: โมเดลเรียนรู้ค่าน้ำหนักพจน์ยกกำลัง (X², X³) เพื่อสร้างเส้นโค้ง"); }} onMouseLeave={handleLeave}>
-               <rect x="0" y="0" width="320" height="40" className="fw-poly-formula-bg fw-poly-formula-bg-final" />
-               <text x="160" y="25" textAnchor="middle" className="fw-poly-formula-text">
-                 y = β₀ + β₁x + β₂x² + β₃x³ + ε
-               </text>
-             </g>
-
-             {/* Curve Animation (วาดเร็วขึ้นเป็น 0.8s) */}
-             <path className="fw-poly-curve" d="M 60 70 Q 150 350, 300 200 T 540 60" />
-
-             {/* Scatter Dots Animation (เด้งเร็วขึ้นทีละ 0.04s) */}
-             {[
-               {x: 60, y: 70}, {x: 100, y: 150}, {x: 140, y: 220}, {x: 180, y: 260},
-               {x: 220, y: 250}, {x: 260, y: 200}, {x: 300, y: 210}, {x: 340, y: 170},
-               {x: 380, y: 120}, {x: 420, y: 140}, {x: 460, y: 80}, {x: 500, y: 90}, {x: 540, y: 60}
-             ].map((dot, i) => (
-               <circle key={`dot-${i}`} cx={dot.x} cy={dot.y} r="5" className="fw-poly-dot" 
-                 style={{ animationDelay: `${0.04 * i}s` }}
-                 onMouseEnter={(e) => { e.stopPropagation(); handleHover("Data Point", "พิกัดข้อมูลจริงที่ใช้ในการ Train Model"); }} 
-                 onMouseLeave={handleLeave} 
-               />
-             ))}
-
-             <text x="490" y="260" className="fw-poly-text" style={{fill: 'var(--orange2)', fontWeight: 'bold'}}>R² = 0.84</text>
-          </svg>
-        )}
-        </div>{/* end fw-vis__scroll-inner */}
-      </div>
-
-      <div className="fw-vis__info">
-        <div className="fw-vis__info-title">{hoverInfo.title}</div>
-        <p className="fw-vis__info-desc">{hoverInfo.desc}</p>
-      </div>
-    </div>
-  );
-}
-
-
-
-
-
-
-
-
-
-
-export default function FoodWastePage() {
-  const [form, setForm] = useState({
-    gender: "", age: "", height: "", weight: "", duration: "",
-  });
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const set = (e) => setForm({ ...form, [e.target.name]: e.target.value });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setTimeout(() => {
-      const age = parseFloat(form.age);
-      const height = parseFloat(form.height);
-      const weight = parseFloat(form.weight);
-      const duration = parseFloat(form.duration);
-      const gender = form.gender;
-
-      const { bmi, heartRate, bodyTemp } = computeDerived(gender, age, height, weight, duration);
-      const aiKcal = mockANN(gender, age, height, weight, duration);
-      const tradKcal = 180; // Fixed Average (ค่าเฉลี่ยคงที่)
-
-      const aiCost = aiKcal * PRICE_PER_KCAL;
-      const tradCost = tradKcal * PRICE_PER_KCAL;
-      const savedKcal = Math.abs(tradKcal - aiKcal);
-      const savedBaht = savedKcal * PRICE_PER_KCAL;
-      const reductionPct = Math.min(99, (savedKcal / tradKcal) * 100);
-
-      setResult({
-        aiKcal: aiKcal.toFixed(1),
-        tradKcal: tradKcal.toFixed(1),
-        aiCost: aiCost.toFixed(2),
-        tradCost: tradCost.toFixed(2),
-        savedKcal: savedKcal.toFixed(1),
-        savedBaht: savedBaht.toFixed(2),
-        reductionPct: reductionPct.toFixed(1),
-        bmi: bmi.toFixed(1),
-        heartRate: heartRate.toFixed(0),
-        bodyTemp: bodyTemp.toFixed(2),
-      });
-      setLoading(false);
-    }, 900);
-  };
-
-  const handleReset = () => {
-    setForm({ gender: "", age: "", height: "", weight: "", duration: "" });
-    setResult(null);
-  };
-
-  
-  const metricsExplanation = [
-    { label: "R²", name: "R-Squared", desc: "สัดส่วนความแปรปรวนที่โมเดลสามารถอธิบายได้ ยิ่งใกล้ 100% ยิ่งดี" },
-    { label: "MAE", name: "Mean Absolute Error", desc: "ความคลาดเคลื่อนสัมบูรณ์ ยิ่งต่ำยิ่งดี" },
-    { label: "RMSE", name: "Root Mean Square Error", desc: "รากที่สองของความคลาดเคลื่อนกำลังสองเฉลี่ย" },
-    { label: "MAPE", name: "Mean Absolute Pct Error", desc: "ร้อยละความคลาดเคลื่อนเฉลี่ยสัมบูรณ์" }
-  ];
-
-  // นำ Icon ออกเพื่อความ Professional
-  const wasteTopics = [
-    {
-      tag: "ปัญหาการประเมินแบบดั้งเดิม",
-      title: "การคำนวณจากค่าเฉลี่ยรวม",
-      body: "การประเมินอัตราการเผาผลาญแคลอรีด้วยวิธีการดั้งเดิมที่อาศัยการคำนวณจากค่าเฉลี่ยรวม ไม่สามารถสะท้อนความต้องการพลังงานในระดับบุคคลได้แม่นยำ ส่งผลให้เกิดความสิ้นเปลืองค่าใช้จ่ายและปัญหาขยะอาหาร",
-    },
-    {
-      tag: "วัตถุประสงค์การศึกษา",
-      title: "พัฒนาตัวแบบ Machine Learning",
-      body: "การศึกษาครั้งนี้มุ่งพัฒนาตัวแบบจำลองสำหรับการพยากรณ์การเผาผลาญแคลอรีเฉพาะบุคคล และประเมินผลกระทบด้านต้นทุนอาหารเปรียบเทียบกับวิธีการประเมินแบบดั้งเดิม",
-    },
-    {
-      tag: "ระเบียบวิธีวิจัย",
-      title: "ข้อมูล 15,000 รายการ",
-      body: "ใช้ตัวแปร เพศ อายุ น้ำหนัก ส่วนสูง และระยะเวลา นำมาคำนวณสมการเชิงสรีรวิทยา (BMI, Body Temp, Heart Rate) และเทียบ 4 ตัวแบบ: ANN, Random Forest, XGBoost และ Polynomial Regression",
-    },
-    {
-      tag: "ประสิทธิภาพสูงสุด",
-      title: "ANN (R-Squared 96.48%)",
-      body: "ANN ให้ประสิทธิภาพสูงสุด มีค่า MAE=8.22, RMSE=11.75, MAPE=12.38% ช่วยพยากรณ์ต้นทุนอาหารอ้างอิงจากเกณฑ์เส้นความยากจนได้อย่างมีนัยสำคัญ นำไปสู่การลดขยะอาหารอย่างเป็นรูปธรรม",
-    },
-  ];
-
-  const modelComparisons = [
-    { name: "ANN (Multi-Layer Perceptron)", r2: "96.48%", mae: "8.22", rmse: "11.75", mape: "12.38%", best: true },
-    { name: "XGBoost", r2: "96.38%", mae: "8.26", rmse: "11.87", mape: "11.88%", best: false },
-    { name: "Random Forest", r2: "95.95%", mae: "8.74", rmse: "12.56", mape: "12.5%", best: false },
-    { name: "Polynomial Regression", r2: "96.42%", mae: "8.52", rmse: "11.82", mape: "15.61%", best: false },
-  ];
-
-
-  return (
-    <main className="fw-page">
-
-      {/* Hero */}
-      <section className="fw-hero">
-        <div className="fw-hero__inner">
-          <div className="fw-hero__eyebrow">
-            <span className="fw-tag">Machine Learning </span>
-            <span className="fw-tag">deep learning</span>
-          </div>
-          <h1 className="fw-hero__h1">
-            Food Waste <span className="fw-orange">Predictor</span>
+      <div className="fw-wrap">
+        <div className="fw-hero">
+          <span className="fw-kicker">
+            The 7th National Conference on Science, Technology and Innovation · 27 March 2026
+          </span>
+          <h1 className="fw-title">
+            A Comparison of Machine Learning and Deep Learning Models for{" "}
+            <em>Calories Burn Prediction</em>
           </h1>
-          <p className="fw-hero__lead">
-            ยกระดับการบริหารจัดการทรัพยากรอาหารและลดขยะอาหารด้วยการพยากรณ์การเผาผลาญแคลอรีเฉพาะบุคคล
+          <p className="fw-title-th">
+            การเปรียบเทียบตัวแบบการเรียนรู้ของเครื่องและการเรียนรู้เชิงลึกสำหรับการพยากรณ์การเผาผลาญแคลอรี
           </p>
-        </div>
+          <p className="fw-authors">
+            <b>ณัฐชพล เกลียวกลม</b>, ทยากร ตากาบุตร, ธนินท์รัฐ ศรีสุพัฒน์ตา, จิราพัชร วงษ์ชุมภู,
+            พีรพัฒน์ กันตา และ เฉลิมรัช นนทะภา
+          </p>
+          <p className="fw-affil">
+            โครงการจัดตั้งศูนย์วิจัยวิทยาการข้อมูล และ ภาควิชาสถิติ คณะวิทยาศาสตร์ มหาวิทยาลัยเชียงใหม่
+          </p>
 
-        <div className="fw-section__inner">
-
-          <div className="fw-calc__layout">
-            <form className="fw-form" onSubmit={handleSubmit}>
-
-              <div className="fw-form__section-label">ข้อมูลกายภาพ</div>
-              <div className="fw-form__grid">
-                <div className="fw-field">
-                  <label className="fw-label">เพศ</label>
-                  <select name="gender" className="fw-input" value={form.gender} onChange={set} required>
-                    <option value="">เลือกเพศ</option>
-                    <option value="male">ชาย (Male = 1)</option>
-                    <option value="female">หญิง (Female = 0)</option>
-                  </select>
-                </div>
-                <div className="fw-field">
-                  <label className="fw-label">อายุ (ปี)</label>
-                  <input type="number" name="age" className="fw-input" placeholder="เช่น 28" min="5" max="100" value={form.age} onChange={set} required />
-                </div>
-                <div className="fw-field">
-                  <label className="fw-label">ส่วนสูง (ซม.)</label>
-                  <input type="number" name="height" className="fw-input" placeholder="เช่น 175" min="100" max="250" value={form.height} onChange={set} required />
-                </div>
-                <div className="fw-field">
-                  <label className="fw-label">น้ำหนัก (กก.)</label>
-                  <input type="number" name="weight" className="fw-input" placeholder="เช่น 70" min="20" max="200" value={form.weight} onChange={set} required />
-                </div>
-              </div>
-
-              <div className="fw-form__section-label" style={{ marginTop: "18px" }}>ข้อมูลกิจกรรม</div>
-              <div className="fw-form__grid fw-form__grid--single">
-                <div className="fw-field fw-field--full">
-                  <label className="fw-label">ระยะเวลากิจกรรม (นาที)</label>
-                  <input type="number" name="duration" className="fw-input" placeholder="เช่น 60" min="1" max="600" value={form.duration} onChange={set} required />
-                </div>
-              </div>
-
-              {/* Derived preview */}
-              {form.height && form.weight && form.age && form.duration && form.gender && (() => {
-                const d = computeDerived(form.gender, parseFloat(form.age), parseFloat(form.height), parseFloat(form.weight), parseFloat(form.duration));
-                return (
-                  <div className="fw-derived">
-                    <div className="fw-derived__label">ตัวแปรแฝงทางสรีรวิทยา (Physiological Features)</div>
-                    <div className="fw-derived__row">
-                      <div className="fw-derived__stat">
-                        <span className="fw-derived__stat-label">BMI</span>
-                        <span className="fw-derived__val">{d.bmi.toFixed(1)}</span>
-                      </div>
-                      <div className="fw-derived__stat">
-                        <span className="fw-derived__stat-label">Heart Rate</span>
-                        <span className="fw-derived__val">
-                          {d.heartRate.toFixed(0)}<span className="fw-derived__unit">bpm</span>
-                        </span>
-                      </div>
-                      <div className="fw-derived__stat">
-                        <span className="fw-derived__stat-label">Body Temp</span>
-                        <span className="fw-derived__val">
-                          {d.bodyTemp.toFixed(2)}<span className="fw-derived__unit">°C</span>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="fw-form__actions">
-                <button type="submit" className="fw-btn fw-btn--primary" disabled={loading}>
-                  {loading
-                    ? <span className="fw-btn__loading"><span className="fw-spinner" /> ประมวลผล...</span>
-                    : "วิเคราะห์ข้อมูล →"}
-                </button>
-                <button type="button" className="fw-btn fw-btn--ghost" onClick={handleReset}>รีเซ็ต</button>
-              </div>
-            </form>
-
-            {/* Result Panel */}
-            <div className={`fw-result-panel${result ? " fw-result-panel--visible" : ""}`}>
-              {!result ? (
-                <div className="fw-result-empty">
-                  {/* นำ Icon ออก */}
-                  <p style={{ marginTop: 0 }}>รอรับข้อมูลอินพุต<br />กด "วิเคราะห์ข้อมูล" <br />เพื่อทำการพยากรณ์ผ่านโมเดล ANN</p>
-                </div>
-              ) : (
-                <div className="fw-result">
-                  <div className="fw-result__badge">ANN Model Prediction</div>
-
-                  {/* Main: ANN */}
-                  <div className="fw-result__main">
-                    <div className="fw-result__main-row">
-                      <div className="fw-result__main-block">
-                        <div className="fw-result__main-label">พลังงานที่ควรได้รับ</div>
-                        <div className="fw-result__main-val">
-                          {result.aiKcal}<span className="fw-result__unit"> kcal</span>
-                        </div>
-                      </div>
-                      <div className="fw-result__main-sep" />
-                      <div className="fw-result__main-block">
-                        <div className="fw-result__main-label">ต้นทุนที่ควรจัดเตรียม</div>
-                        <div className="fw-result__main-val fw-result__main-val--baht">
-                          {result.aiCost}<span className="fw-result__unit"> ฿</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="fw-result__main-sub">ต่อบุคคล / รอบกิจกรรม · 0.098 ฿/kcal</div>
-                  </div>
-
-                  {/* Compare */}
-                  <div className="fw-result__compare-title">การวิเคราะห์ความคุ้มค่า (Cost Analysis)</div>
-                  <div className="fw-result__rows">
-                    <div className="fw-result__row">
-                      <span>วิธีดั้งเดิม (Fixed Average)</span>
-                      <div className="fw-result__row-right">
-                        <span className="fw-result__row-val--old">{result.tradKcal} kcal</span>
-                        <span className="fw-result__row-sub">{result.tradCost} ฿</span>
-                      </div>
-                    </div>
-                    <div className="fw-result__row fw-result__row--hl">
-                      <span>อัตราการลดความคลาดเคลื่อน</span>
-                      <div className="fw-result__row-right">
-                        <span className="fw-result__row-val--good">{result.reductionPct}%</span>
-                      </div>
-                    </div>
-                    <div className="fw-result__row">
-                      <span>ส่วนต่างพลังงาน</span>
-                      <div className="fw-result__row-right">
-                        <span>{result.savedKcal} kcal</span>
-                      </div>
-                    </div>
-                    <div className="fw-result__row fw-result__row--money">
-                      <span>ลดความสูญเสียทางเศรษฐกิจได้</span>
-                      <div className="fw-result__row-right">
-                        <span className="fw-result__row-val--save">{result.savedBaht} ฿</span>
-                        <span className="fw-result__row-sub">ต่อบุคคล</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="fw-result__note">
-                    * ผลลัพธ์จากการคำนวณผ่านสมการจำลองสำหรับสาธิตแนวคิดการทำงานของตัวแบบ
-                  </p>
-                </div>
-              )}
+          <div className="fw-headline">
+            <div className="fw-stat win">
+              <div className="fw-stat-label">Best model</div>
+              <div className="fw-stat-value">MLP</div>
+              <div className="fw-stat-note">Multi-Layer Perceptron</div>
+            </div>
+            <div className="fw-stat">
+              <div className="fw-stat-label">R-Squared</div>
+              <div className="fw-stat-value">99.9959%</div>
+              <div className="fw-stat-note">on the held-out test set</div>
+            </div>
+            <div className="fw-stat">
+              <div className="fw-stat-label">MSE</div>
+              <div className="fw-stat-value">0.1652</div>
+              <div className="fw-stat-note">MAE 0.3220</div>
+            </div>
+            <div className="fw-stat">
+              <div className="fw-stat-label">Dataset</div>
+              <div className="fw-stat-value">15,000</div>
+              <div className="fw-stat-note">records, 80 / 20 split</div>
             </div>
           </div>
         </div>
-      </section>
 
-      {/* Food Waste Explanation */}
-      <section className="fw-waste">
-        <div className="fw-section__inner">
-          <div className="fw-section__eyebrow">ที่มาและความสำคัญ</div>
-          <h2 className="fw-section__h2">บทคัดย่อ (Abstract)</h2>
-          <p className="fw-waste__intro" style={{ maxWidth: '100%', textAlign: 'left', wordBreak: 'break-word' }}>           
-             การประเมินอัตราการเผาผลาญแคลอรีของผู้เข้าร่วมกิจกรรมกีฬาด้วยวิธีการดั้งเดิมที่อาศัยการคำนวณจากค่าเฉลี่ยรวม
-            ไม่สามารถสะท้อนความต้องการพลังงานในระดับบุคคลได้แม่นยำ ส่งผลให้เกิดความสิ้นเปลืองค่าใช้จ่ายและปัญหาขยะอาหาร
-            การศึกษาในครั้งนี้มีวัตถุประสงค์เพื่อพัฒนาตัวแบบจำลอง Machine Learning สำหรับการพยากรณ์การเผาผลาญแคลอรีเฉพาะบุคคล
-            และประเมินผลกระทบด้านต้นทุนอาหารเปรียบเทียบกับวิธีการประเมินแบบดั้งเดิม
+        <Section no="01" title="Introduction" id="introduction">
+          <p>
+            In today&apos;s fast-paced society, regular exercise is vital for both physical health and
+            cognitive function. Physical activity triggers the release of BDNF, which enhances focus and
+            daily productivity (Festa, 2023). But strict time constraints mean a workout has to be
+            efficient, and <strong>accurately tracking calorie expenditure</strong> is the metric a
+            personalised, time-effective routine is designed around — turning exercise into a sustainable
+            habit rather than another burden.
           </p>
-          <div className="fw-waste__grid">
-            {wasteTopics.map((t, index) => (
-              <div className="fw-wtopic" key={index}>
-                <div className="fw-wtopic__top">
-                  {/* นำ Icon ออก เหลือเพียงแค่ Tag */}
-                  <span className="fw-wtopic__tag">{t.tag}</span>
-                </div>
-                <h3 className="fw-wtopic__title">{t.title}</h3>
-                <p className="fw-wtopic__body">{t.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-        
-            
+        </Section>
 
-      {/* Methodology & Model Evaluation */}
-      <section className="fw-methodology">
-        <div className="fw-section__inner">
-          <div className="fw-section__eyebrow">ระเบียบวิธีวิจัย (Methodology)</div>
-          <h2 className="fw-section__h2">การเปรียบเทียบและประเมินโมเดล</h2>
-          <p className="fw-waste__intro" style={{ maxWidth: '100%', textAlign: 'justify' }}>
-            การศึกษาครั้งนี้ทำการเปรียบเทียบประสิทธิภาพ 4 ตัวแบบ ได้แก่ ANN, Random Forest, XGBoost และ Polynomial Regression
-            ผ่านกระบวนการตรวจสอบความถูกต้องแบบไขว้ (K-Fold Cross Validation)
-            โดยใช้ค่าความคลาดเคลื่อนสมบูรณ์เฉลี่ย (MAE), ค่ารากที่สองของความคลาดเคลื่อนกำลังสองเฉลี่ย (RMSE),
-            ค่าเปอร์เซ็นต์ความคลาดเคลื่อนสมบูรณ์เฉลี่ย (MAPE) และค่าสัมประสิทธิ์การตัดสินใจ (R-Squared)
-          </p>
+        <Section no="02" title="Objectives" id="objectives">
+          <ul className="fw-list">
+            <li>Develop accurate and practical machine and deep learning models for calorie burn prediction.</li>
+            <li>Compare performance, stability and error metrics across XGBoost, CatBoost and MLP regression.</li>
+            <li>Investigate the factors that influence calorie burn using the data the models were built on.</li>
+          </ul>
+        </Section>
 
-                      <ModelVisualizer />
-            
-             <div className="fw-metrics__grid">
-               {metricsExplanation.map((metric, i) => (
-                 <div className="fw-metric-card" key={i}>
-                    <div className="fw-metric-card__label">{metric.label}</div>
-                    <div className="fw-metric-card__name">{metric.name}</div>
-                    <p className="fw-metric-card__desc">{metric.desc}</p>
-                 </div>
-               ))}
-             </div>
-          
-          <div className="fw-eval__grid">
-            <div className="fw-eval__table-wrap" style={{ gridColumn: '1 / -1' }}>
-              <h3 className="fw-eval__title">ผลการประเมินประสิทธิภาพตัวแบบ (Model Performance)</h3>
-              <div className="fw-eval__table-scroll" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                <table className="fw-eval__table">
-                  <thead>
-                    <tr>
-                      <th>Algorithm</th>
-                      <th>R² Score</th>
-                      <th>MAE</th>
-                      <th>RMSE</th>
-                      <th>MAPE</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modelComparisons.map((m, idx) => (
-                      <tr key={idx} className={m.best ? "fw-eval__row--best" : ""}>
-                        <td>
-                          {/* คงดาวสัญลักษณ์ตัวอักษรไว้ให้ตัวที่ดีที่สุด */}
-                          {m.best && <span className="fw-eval__star">★</span>} {m.name}
-                        </td>
-                        <td className="fw-mono">{m.r2}</td>
-                        <td className="fw-mono">{m.mae}</td>
-                        <td className="fw-mono">{m.rmse}</td>
-                        <td className="fw-mono">{m.mape}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Abstract Conclusion */}
-      <section className="fw-abstract" style={{ paddingTop: '20px' }}>
-        <div className="fw-section__inner">
-          <div className="fw-abstract__box">
-            <div className="fw-abstract__result">
-              <h3 className="fw-eval__title">สรุปงานวิจัย</h3>
-
+        <Section no="03" title="Literature review" id="literature">
+          <div className="fw-cards">
+            <div className="fw-card">
+              <span className="fw-card-tag">Beebireddy, 2025</span>
               <p>
-                ผลการศึกษาพบว่าตัวแบบ <strong>ANN ให้ประสิทธิภาพสูงสุดในการพยากรณ์</strong> โดยมี ค่า MAE เท่ากับ 8.22, ค่า RMSE เท่ากับ 11.75, ค่า MAPE เท่ากับ 12.37% และค่า R-Squared สูงถึง 96.48% 
-                จึงได้นำตัวแบบดังกล่าวมาประยุกต์ใช้ในการพยากรณ์อัตราการเผาผลาญพลังงาน และแปลงผลลัพธ์เป็นต้นทุนอาหาร (สกุลเงินบาท) โดยอ้างอิงจากเกณฑ์เส้นความยากจนของประเทศไทย 
-                พบว่า <strong>การนำตัวแบบมาใช้สามารถลดต้นทุนได้อย่างมีนัยสำคัญ</strong> แสดงให้เห็นว่า Machine Learning มีประสิทธิภาพในการยกระดับการบริหารจัดการทรัพยากรอาหารและลดขยะอาหารได้อย่างเป็นรูปธรรม
+                Predicted calorie burn with seven models. The neural network reached{" "}
+                <strong>98.87%</strong> accuracy — the strongest of the set.
+              </p>
+            </div>
+            <div className="fw-card">
+              <span className="fw-card-tag">Paria, n.d.</span>
+              <p>
+                Compared five machine learning models. CatBoost came first and XGBoost second, both
+                around <strong>99%</strong>.
               </p>
             </div>
           </div>
-        </div>
-      </section>
+        </Section>
 
+        <Section no="04" title="Methodology" id="methodology">
+          <div className="fw-steps">
+            {STEPS.map((s) => (
+              <div className="fw-step" key={s.no}>
+                <div className="fw-step-no">{s.no}</div>
+                <div className="fw-step-name">{s.name}</div>
+                <div className="fw-step-note">{s.note}</div>
+              </div>
+            ))}
+          </div>
 
-
-      
-      <section className="fw-poster-section">
-        <div className="fw-poster__wrapper">
-          <div className="fw-poster__box">
-            <div className="fw-poster__header">
-              <h2 className="fw-poster__title">Research Poster</h2>
+          <div className="fw-vars" style={{ marginTop: 14 }}>
+            <div className="fw-card">
+              <h3>Data overview</h3>
+              <p>15,000 records of calorie burn from physical activity.</p>
+              <div className="fw-chiplist">
+                <span className="fw-chip">gender</span>
+                <span className="fw-chip">height</span>
+                <span className="fw-chip">weight</span>
+                <span className="fw-chip">duration</span>
+                <span className="fw-chip">heart rate</span>
+                <span className="fw-chip">body temperature</span>
+              </div>
+              <div className="fw-chiplist">
+                <span className="fw-chip target">calories burned — target</span>
+              </div>
             </div>
-            <div className="fw-poster__a0">
-              <div className="fw-poster__placeholder"><Image src={pic} alt="Picture of the author" />;</div>
+
+            <div className="fw-card">
+              <h3>Preprocessing</h3>
+              <p>
+                Categorical values are encoded numerically, every variable is scaled to a common range so
+                no single one biases the model, and <strong>forward selection</strong> keeps only the
+                inputs that actually move the prediction.
+              </p>
+              <div className="fw-chiplist">
+                <span className="fw-chip keep">gender</span>
+                <span className="fw-chip keep">weight</span>
+                <span className="fw-chip keep">duration</span>
+                <span className="fw-chip keep">heart rate</span>
+                <span className="fw-chip drop">height</span>
+                <span className="fw-chip drop">body temperature</span>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
 
-      <footer className="fw-footer">
-        <span>Food Waste Reduction Research</span>
-        <span className="fw-footer__dot">·</span>
-        <span>Build for KKR NCST</span>
-        <span>Contract: natchaphol_k@cmu.ac.th</span>
-      </footer>
-    </main>
+          <div className="fw-card" style={{ marginTop: 10 }}>
+            <h3>Splitting and evaluation</h3>
+            <p>
+              The selected data is split <strong>80 / 20</strong> — 12,000 records to learn the patterns
+              and 3,000 held back to measure accuracy. Three metrics judge the result:{" "}
+              <strong>MSE</strong> (average squared difference between predicted and actual),{" "}
+              <strong>MAE</strong> (average absolute difference) and <strong>R²</strong> (how much of the
+              variation the model explains). Learning curves check for under- and overfitting; residual
+              plots check the errors are random rather than patterned.
+            </p>
+          </div>
+        </Section>
+
+        <Section no="05" title="The three models" id="models">
+          <div className="fw-cards">
+            {MODELS.map((m) => (
+              <div className="fw-card" key={m.id}>
+                <span className="fw-card-tag">{m.kind}</span>
+                <h3>{m.name}</h3>
+                <p>{m.blurb}</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section no="06" title="Results" id="results">
+          <div className="fw-table-scroll">
+            <table className="fw-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>MAE (train)</th>
+                  <th>MAE (test)</th>
+                  <th>MSE</th>
+                  <th>R²</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MODELS.map((m) => (
+                  <tr key={m.id} className={m.best ? "best" : ""}>
+                    <td>{m.name}</td>
+                    <td>{m.maeTrain.toFixed(4)}</td>
+                    <td>{m.maeTest.toFixed(4)}</td>
+                    <td>{m.mse.toFixed(4)}</td>
+                    <td>{m.r2.toFixed(4)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="fw-caption">
+            The MLP&apos;s training and testing MAE sit within 0.013 of each other, so the gap it wins by
+            is not memorised training data.
+          </p>
+
+          <div style={{ marginTop: 22 }}>
+            <div className="fw-tabs">
+              {FIGURES.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className={`fw-tab ${figure === f.key ? "on" : ""}`}
+                  onClick={() => setFigure(f.key)}
+                  aria-pressed={figure === f.key}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="fw-figures">
+              {MODELS.map((m) => (
+                <figure className="fw-figure" key={m.id}>
+                  <div className="fw-figure-head">{m.name}</div>
+                  <div className="fw-figure-plate">
+                    <img
+                      src={FIGURE_FILE[`${m.id}-${figure}`]}
+                      alt={`${active.label} for ${m.name}`}
+                      loading="lazy"
+                    />
+                  </div>
+                </figure>
+              ))}
+            </div>
+            <p className="fw-caption">{active.caption}</p>
+          </div>
+        </Section>
+
+        <Section no="07" title="Conclusion" id="conclusion">
+          <p>
+            The <strong>Multi-Layer Perceptron</strong> emerged as the most effective model, validated by
+            all three metrics: an MSE of <strong>0.1652</strong>, an MAE of <strong>0.3220</strong> and{" "}
+            <strong>99.9959%</strong> accuracy.
+          </p>
+        </Section>
+
+        <Section no="08" title="Discussion" id="discussion">
+          <p>
+            The MLP captures the <strong>non-linear relationship between duration and heart rate</strong>{" "}
+            better than XGBoost or CatBoost, which is where its higher accuracy comes from.
+          </p>
+          <p>
+            This is consistent with Beebireddy (2025), where a neural network — the same underlying
+            algorithm — reached 98.87%. The MLP here goes further, and forward feature selection plus data
+            scaling are what account for the difference.
+          </p>
+        </Section>
+
+        <Section no="09" title="Benefits" id="benefits">
+          <div className="fw-cards">
+            <div className="fw-card">
+              <h3>Technological</h3>
+              <p>
+                A foundation for health support technology: fitness applications and smart activity
+                tracking devices.
+              </p>
+            </div>
+            <div className="fw-card">
+              <h3>Health</h3>
+              <p>
+                A basic tool for analysing and designing exercise programmes, and for nutrition
+                specialists planning systematic weight management.
+              </p>
+            </div>
+          </div>
+        </Section>
+
+        <Section no="10" title="Limitations and future work" id="recommendation">
+          <div className="fw-cards">
+            <div className="fw-card">
+              <h3>Limitations</h3>
+              <ul className="fw-list">
+                <li>The model only predicts calories burned during exercise.</li>
+                <li>Individual variation in exercise form can reduce accuracy.</li>
+              </ul>
+            </div>
+            <div className="fw-card">
+              <h3>Future research</h3>
+              <ul className="fw-list">
+                <li>Build on this foundation towards more accurate models.</li>
+                <li>Run real-world human trials and validate with domain experts.</li>
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        <Section no="11" title="References" id="references">
+          <ol className="fw-refs">
+            <li>
+              Beebireddy, D., Harika, K. L., &amp; Adithya, K. (2025, January). Accurate Prediction of
+              Calories Burn Using Deep Learning Approach. In <i>2025 International Conference on Next
+              Generation Communication &amp; Information Processing (INCIP)</i> (pp. 530–534). IEEE.
+            </li>
+            <li>
+              Paria, A., Pattan, K. I., Devi, M. R., Nandini, K., Revathi, V., &amp; Hiremath, S.
+              Comparative analysis for calorie burn prediction using machine learning techniques. In{" "}
+              <i>Smart Technologies and Intelligent Computing</i> (pp. 241–251). CRC Press.
+            </li>
+            <li>
+              Festa, F., Medori, S., &amp; Macrì, M. (2023). Move your body, boost your brain: the
+              positive impact of physical activity on cognition across all age groups.{" "}
+              <i>Biomedicines, 11</i>(6), 1765.
+            </li>
+          </ol>
+        </Section>
+
+        <footer className="fw-footer">
+          Figures reproduced from the presentation deck. Corresponding author: เฉลิมรัช นนทะภา ·
+          chalermrat.n@cmu.ac.th
+        </footer>
+      </div>
+    </div>
   );
 }
