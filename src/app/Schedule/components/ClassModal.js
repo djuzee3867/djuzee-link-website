@@ -1,215 +1,275 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { DAYS, DAYS_SHORT, SUBJECT_COLORS, generateId, getContrastYIQ } from '../lib/scheduleStore';
 
-const parseTime = (input) => {
-  if (!input) return '08:00';
-  let str = input.replace(/\D/g, ''); 
-  if (str === '') return '08:00';
-  if (str.length === 1) str = `0${str}00`;       
-  else if (str.length === 2) str = `${str}00`;   
-  else if (str.length === 3) str = `0${str}`;    
-  else if (str.length > 4) str = str.substring(0, 4);
+/* Add or edit a subject, optionally with the times it meets.
 
-  let h = parseInt(str.substring(0, 2), 10);
-  let m = parseInt(str.substring(2, 4), 10);
-  if (h < 8) h = 8;
-  if (h > 18) { h = 18; m = 0; }
-  if (h === 18 && m > 0) m = 0; 
-  if (m > 59) m = 59;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-};
+   onSave returns null when it took the data, or a message when it refused
+   (a clash with something already on the grid). The message is shown in place
+   rather than in a popup, so the form the reader has to fix stays on screen. */
 
-export default function ClassModal({ subjects, onSave, onClose, prefill }) {
+import { useEffect, useState } from "react";
+import {
+  DAYS,
+  DAYS_SHORT,
+  SUBJECT_COLORS,
+  generateId,
+  getContrastYIQ,
+  nextColorIndex,
+  parseTime,
+  toMinutes,
+} from "../lib/scheduleStore";
+
+export default function ClassModal({ subjects, prefill, onSave, onClose }) {
   const [form, setForm] = useState({
-    code: prefill?.code || '', 
-    name: prefill?.name || '', 
-    colorMode: prefill?.color ? 'custom' : 'preset',
-    colorIndex: prefill?.colorIndex ?? 0,
-    customColor: prefill?.color?.bg || '#6366f1',
+    code: prefill?.code || "",
+    name: prefill?.name || "",
+    colorMode: prefill?.color ? "custom" : "preset",
+    colorIndex: prefill?.colorIndex ?? nextColorIndex(subjects),
+    customColor: prefill?.color?.bg || "#6366f1",
     days: prefill?.days || (prefill?.day !== undefined ? [prefill.day] : [0]),
-    startTime: prefill?.startTime || '08:00',
-    endTime: prefill?.endTime || '09:00',
+    startTime: prefill?.startTime || "08:00",
+    endTime: prefill?.endTime || "09:00",
   });
-  
-  const [hasSession, setHasSession] = useState(!!prefill?.startTime || !!prefill?.isEdit);
+  const [hasSession, setHasSession] = useState(
+    Boolean(prefill?.startTime) || Boolean(prefill?.isEdit)
+  );
+  const [error, setError] = useState("");
 
+  // typing the name of a subject that already exists adopts its code and colour
   useEffect(() => {
-    if (prefill?.isEdit) return; 
-    const existing = subjects.find(s => s.name === form.name);
-    if (existing) {
-      setForm(prev => ({ 
-        ...prev, code: existing.code || '', 
-        colorMode: existing.color ? 'custom' : 'preset',
-        colorIndex: existing.colorIndex ?? 0,
-        customColor: existing.color?.bg || '#6366f1'
-      }));
-    }
+    if (prefill?.isEdit) return;
+    const existing = subjects.find((s) => s.name === form.name);
+    if (!existing) return;
+    setForm((prev) => ({
+      ...prev,
+      code: existing.code || "",
+      colorMode: existing.color ? "custom" : "preset",
+      colorIndex: existing.colorIndex ?? 0,
+      customColor: existing.color?.bg || "#6366f1",
+    }));
   }, [form.name, subjects, prefill]);
 
-  const handleTimeBlur = (field) => { setForm(prev => ({ ...prev, [field]: parseTime(prev[field]) })); };
-  const toggleDay = (dayIndex) => {
-    setForm(prev => {
-      const newDays = prev.days.includes(dayIndex) ? prev.days.filter(d => d !== dayIndex) : [...prev.days, dayIndex].sort((a,b) => a-b);
-      return { ...prev, days: newDays };
-    });
+  const toggleDay = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      days: prev.days.includes(index)
+        ? prev.days.filter((d) => d !== index)
+        : [...prev.days, index].sort((a, b) => a - b),
+    }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    setError("");
+    if (!form.name.trim()) {
+      setError("กรุณาใส่ชื่อวิชา");
+      return;
+    }
 
-    const finalStart = parseTime(form.startTime);
-    const finalEnd = parseTime(form.endTime);
+    const start = parseTime(form.startTime, "08:00");
+    const end = parseTime(form.endTime, "09:00");
 
     if (hasSession) {
-      if (form.days.length === 0) { alert('กรุณาเลือกวันอย่างน้อย 1 วัน'); return; }
-      const startMins = parseInt(finalStart.split(':')[0]) * 60 + parseInt(finalStart.split(':')[1]);
-      const endMins = parseInt(finalEnd.split(':')[0]) * 60 + parseInt(finalEnd.split(':')[1]);
-      if (startMins < 8 * 60 || endMins > 18 * 60) { alert('เวลาเรียนต้องอยู่ระหว่าง 08:00 ถึง 18:00 น.'); return; }
-      if (startMins >= endMins) { alert('เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่มต้น'); return; }
+      if (form.days.length === 0) {
+        setError("เลือกวันอย่างน้อย 1 วัน");
+        return;
+      }
+      if (toMinutes(start) >= toMinutes(end)) {
+        setError("เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่มต้น");
+        return;
+      }
     }
 
     const subjectData = {
-      id: subjects.find(s => s.name === form.name)?.id || generateId(),
+      id: subjects.find((s) => s.name === form.name.trim())?.id || generateId(),
       code: form.code.trim(),
       name: form.name.trim(),
-      colorIndex: form.colorMode === 'preset' ? form.colorIndex : null,
-      color: form.colorMode === 'custom' ? { bg: form.customColor, text: getContrastYIQ(form.customColor) } : null,
+      colorIndex: form.colorMode === "preset" ? form.colorIndex : null,
+      color:
+        form.colorMode === "custom"
+          ? { bg: form.customColor, text: getContrastYIQ(form.customColor) }
+          : null,
     };
 
-    const sessionsData = hasSession ? form.days.map(d => ({
-      id: generateId(), day: Number(d), startTime: finalStart, endTime: finalEnd,
-    })) : null;
+    const sessionsData = hasSession
+      ? form.days.map((day) => ({
+          id: generateId(),
+          day: Number(day),
+          startTime: start,
+          endTime: end,
+        }))
+      : null;
 
-    onSave(subjectData, sessionsData, prefill?.isEdit ? prefill.sessionId : null);
+    const problem = onSave(subjectData, sessionsData, prefill?.isEdit ? prefill.sessionId : null);
+    if (problem) setError(problem);
   };
 
-  const currentColorObj = form.colorMode === 'custom' ? { bg: form.customColor } : SUBJECT_COLORS[form.colorIndex];
+  const current =
+    form.colorMode === "custom"
+      ? { bg: form.customColor, text: getContrastYIQ(form.customColor) }
+      : SUBJECT_COLORS[form.colorIndex];
+
+  const title = prefill?.isEdit ? "แก้ไขคาบเรียน" : prefill ? "เพิ่มคาบเรียน" : "เพิ่มรายวิชา";
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{prefill?.isEdit ? 'แก้ไขคาบเรียน' : (prefill ? 'เพิ่มคาบเรียน' : 'เพิ่มรายวิชา')}</h2>
-          <button className="close-btn" onClick={onClose}>✕</button>
+    <div className="sc-overlay" onClick={onClose}>
+      <form className="sc-modal" onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
+        <div className="sc-modal-head">
+          <h2>{title}</h2>
+          <button type="button" className="sc-icon-btn" onClick={onClose} aria-label="ปิด">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="form-row">
-            <div className="form-group" style={{ flex: 1 }}>
-              <label>รหัสวิชา</label>
-              <input type="text" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="01000001" />
+        <div className="sc-modal-body">
+          <div className="sc-field sc-row-2">
+            <div>
+              <label className="sc-label" htmlFor="sc-code">รหัสวิชา</label>
+              <input
+                id="sc-code"
+                className="sc-input mono"
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value })}
+                placeholder="01000001"
+              />
             </div>
-            <div className="form-group" style={{ flex: 2 }}>
-              <label>ชื่อวิชา *</label>
-              <input list="subject-names" type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Calculus 9" required />
-              <datalist id="subject-names">{subjects.map(s => <option key={s.id} value={s.name} />)}</datalist>
+            <div style={{ flex: 2 }}>
+              <label className="sc-label" htmlFor="sc-name">ชื่อวิชา *</label>
+              <input
+                id="sc-name"
+                className="sc-input"
+                list="sc-subject-names"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Calculus 2"
+                autoFocus
+                required
+              />
+              <datalist id="sc-subject-names">
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.name} />
+                ))}
+              </datalist>
             </div>
           </div>
 
-          <div className="form-group">
-            <label>สี (สามารถเลือกสีเองได้)</label>
-            <div className="color-picker">
+          <div className="sc-field">
+            <span className="sc-label">สี</span>
+            <div className="sc-swatches">
               {SUBJECT_COLORS.map((color, i) => (
-                <button 
-                  key={i} type="button" 
-                  className={`color-dot ${form.colorMode === 'preset' && form.colorIndex === i ? 'selected' : ''}`} 
-                  style={{ background: color.bg }} 
-                  onClick={() => setForm({ ...form, colorMode: 'preset', colorIndex: i })} 
+                <button
+                  key={color.bg}
+                  type="button"
+                  className={`sc-swatch ${
+                    form.colorMode === "preset" && form.colorIndex === i ? "on" : ""
+                  }`}
+                  style={{ background: color.bg }}
+                  onClick={() => setForm({ ...form, colorMode: "preset", colorIndex: i })}
+                  aria-label={`สีที่ ${i + 1}`}
                 />
               ))}
-              
-              {/* ปุ่มเลือกสีเอง (Custom Color Picker) */}
-              <label 
-                className={`color-dot custom-color-btn ${form.colorMode === 'custom' ? 'selected' : ''}`} 
-                style={{ background: form.colorMode === 'custom' ? form.customColor : 'var(--surface-alt)' }}
+              <label
+                className={`sc-swatch custom ${form.colorMode === "custom" ? "on" : ""}`}
+                style={
+                  form.colorMode === "custom" ? { background: form.customColor } : undefined
+                }
                 title="เลือกสีเอง"
               >
-                {form.colorMode !== 'custom' && <span style={{ fontSize: '18px', color: 'var(--text-muted)' }}>+</span>}
-                <input 
-                  type="color" value={form.customColor} 
-                  onChange={e => setForm({...form, colorMode: 'custom', customColor: e.target.value})} 
-                  style={{ opacity: 0, position: 'absolute', cursor: 'pointer', width: '100%', height: '100%' }}
+                {form.colorMode !== "custom" && "+"}
+                <input
+                  type="color"
+                  value={form.customColor}
+                  onChange={(e) =>
+                    setForm({ ...form, colorMode: "custom", customColor: e.target.value })
+                  }
                 />
               </label>
             </div>
           </div>
 
-          <hr className="divider" />
-
-          <div className="form-group checkbox-group">
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', margin: 0 }}>
-              <input type="checkbox" checked={hasSession} onChange={e => setHasSession(e.target.checked)} style={{ width: 'auto' }} />
+          <div className="sc-field">
+            <label className="sc-check">
+              <input
+                type="checkbox"
+                checked={hasSession}
+                onChange={(e) => setHasSession(e.target.checked)}
+              />
               ระบุเวลาเรียน
             </label>
           </div>
 
           {hasSession && (
-            <div className="time-section">
-              <div className="form-group">
-                <label>เลือกวัน (เลือกได้มากกว่า 1 วัน)</label>
-                <div className="days-selector">
-                  {DAYS.map((d, i) => (
-                    <div key={i} className={`day-btn ${form.days.includes(i) ? 'active' : ''}`} onClick={() => toggleDay(i)}>
+            <>
+              <div className="sc-field">
+                <span className="sc-label">วัน (เลือกได้หลายวัน)</span>
+                <div className="sc-days">
+                  {DAYS.map((day, i) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className={`sc-day-btn ${form.days.includes(i) ? "on" : ""}`}
+                      onClick={() => toggleDay(i)}
+                      aria-pressed={form.days.includes(i)}
+                    >
                       {DAYS_SHORT[i]}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>เวลาเริ่มต้น</label>
-                  <input type="text" placeholder="เช่น 800 หรือ 08:30" value={form.startTime} onChange={e => setForm({ ...form, startTime: e.target.value })} onBlur={() => handleTimeBlur('startTime')} required />
+              <div className="sc-field sc-row-2">
+                <div>
+                  <label className="sc-label" htmlFor="sc-start">เวลาเริ่ม</label>
+                  <input
+                    id="sc-start"
+                    className="sc-input mono"
+                    value={form.startTime}
+                    onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+                    onBlur={() =>
+                      setForm((p) => ({ ...p, startTime: parseTime(p.startTime, "08:00") }))
+                    }
+                    placeholder="800"
+                    required
+                  />
                 </div>
-                <div className="form-group">
-                  <label>เวลาสิ้นสุด</label>
-                  <input type="text" placeholder="เช่น 1000 หรือ 10:30" value={form.endTime} onChange={e => setForm({ ...form, endTime: e.target.value })} onBlur={() => handleTimeBlur('endTime')} required />
+                <div>
+                  <label className="sc-label" htmlFor="sc-end">เวลาสิ้นสุด</label>
+                  <input
+                    id="sc-end"
+                    className="sc-input mono"
+                    value={form.endTime}
+                    onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+                    onBlur={() =>
+                      setForm((p) => ({ ...p, endTime: parseTime(p.endTime, "09:00") }))
+                    }
+                    placeholder="1000"
+                    required
+                  />
                 </div>
               </div>
-            </div>
+              <p className="sc-hint" style={{ padding: 0 }}>
+                พิมพ์สั้นๆ ได้ เช่น 830 จะกลายเป็น 08:30 · ตารางรับเวลา 08:00–18:00
+              </p>
+            </>
           )}
 
-          <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
-            <button type="submit" className="btn-primary" style={{ background: currentColorObj.bg, color: currentColorObj.text || '#fff' }}>บันทึกข้อมูล</button>
-          </div>
-        </form>
-      </div>
+          {error && <div className="sc-error">{error}</div>}
+        </div>
 
-      <style jsx>{`
-        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 15, 35, 0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
-        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px; width: 100%; max-width: 480px; box-shadow: 0 24px 60px rgba(0,0,0,0.4); animation: slideUp 0.25s ease; max-height: 90vh; overflow-y: auto; }
-        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-        .modal-header h2 { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); }
-        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.2rem; cursor: pointer; }
-        .form-group { margin-bottom: 16px; width: 100%; }
-        .form-row { display: flex; gap: 12px; }
-        label { display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); }
-        input[type="text"], input[type="time"], select { width: 100%; padding: 12px 16px; background: var(--input-bg); border: 1.5px solid var(--border); border-radius: 12px; color: var(--text-primary); font-size: 0.95rem; font-family: 'Space Mono', 'Sarabun', sans-serif; box-sizing: border-box; outline: none; transition: 0.2s; }
-        input:focus, select:focus { border-color: var(--accent); }
-        .divider { border: 0; border-top: 1px solid var(--border); margin: 20px 0; }
-        .checkbox-group { background: var(--surface-alt); padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; }
-        
-        .color-picker { display: flex; gap: 10px; flex-wrap: wrap; }
-        .color-dot { width: 32px; height: 32px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; transition: 0.2s; }
-        .color-dot.selected { transform: scale(1.15); box-shadow: 0 0 0 2px var(--surface); border-color: var(--text-primary); }
-        .custom-color-btn { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        
-        .days-selector { display: flex; gap: 8px; flex-wrap: wrap; }
-        .day-btn { padding: 8px 14px; border-radius: 8px; border: 1.5px solid var(--border); background: var(--surface-alt); cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); transition: 0.2s; }
-        .day-btn:hover { border-color: var(--text-muted); }
-        .day-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .time-section { animation: fadeIn 0.3s; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
-        .btn-primary, .btn-secondary { padding: 11px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; border: none; }
-        .btn-secondary { background: var(--surface-alt); color: var(--text-secondary); }
-        
-        @media (max-width: 600px) { .modal { padding: 24px 20px; } .form-row { flex-direction: column; gap: 16px; } .modal-actions { flex-direction: column-reverse; } .btn-primary, .btn-secondary { width: 100%; text-align: center; } }
-      `}</style>
+        <div className="sc-modal-foot">
+          <button type="button" className="sc-btn" onClick={onClose}>
+            ยกเลิก
+          </button>
+          <button
+            type="submit"
+            className="sc-btn primary"
+            style={{ background: current.bg, color: current.text || "#fff" }}
+          >
+            บันทึก
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

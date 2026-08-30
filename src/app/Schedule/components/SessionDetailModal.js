@@ -1,75 +1,63 @@
 "use client";
-import { SUBJECT_COLORS, DAYS } from '../lib/scheduleStore';
 
-export default function SessionDetailModal({ subject, session, onDelete, onEdit, onClose }) {
-  const color = subject.color || SUBJECT_COLORS[subject.colorIndex];
+/* What one session on the grid is, with the two things you can do to it. */
+
+import { DAYS, subjectColor, toMinutes, formatHours } from "../lib/scheduleStore";
+
+export default function SessionDetailModal({ subject, session, onEdit, onDelete, onClose }) {
+  const color = subjectColor(subject);
+  const length = toMinutes(session.endTime) - toMinutes(session.startTime);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-color-bar" style={{ background: color.bg }} />
+    <div className="sc-overlay" onClick={onClose}>
+      <div className="sc-modal narrow" onClick={(e) => e.stopPropagation()}>
+        <div className="sc-modal-bar" style={{ background: color.bg }} />
 
-        <div className="modal-body">
-          {/* Badge แสดงสีให้สอดคล้องกับตัวหนังสือที่คำนวณมา */}
-          <div className="subject-badge" style={{ background: color.bg, color: color.text || '#fff' }}>
-            {subject.code ? `${subject.code} - ` : ''}{subject.name}
-          </div>
+        <div className="sc-modal-head">
+          <h2>รายละเอียดคาบเรียน</h2>
+          <button type="button" className="sc-icon-btn" onClick={onClose} aria-label="ปิด">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-          <h2>{subject.name}</h2>
+        <div className="sc-modal-body">
+          <span
+            className="sc-chip-name"
+            style={{ background: color.bg, color: color.text || "#fff" }}
+          >
+            {subject.code ? `${subject.code} · ` : ""}
+            {subject.name}
+          </span>
 
-          <div className="info-grid">
-            <div className="info-item">
-              <span className="info-label">วัน</span>
-              <span className="info-value">{DAYS[session.day]}</span>
+          <div className="sc-info">
+            <div className="sc-info-row">
+              <span className="sc-info-label">วัน</span>
+              <span className="sc-info-value">{DAYS[session.day]}</span>
             </div>
-            <div className="info-item">
-              <span className="info-label">เวลา</span>
-              <span className="info-value">{session.startTime} – {session.endTime} น.</span>
+            <div className="sc-info-row">
+              <span className="sc-info-label">เวลา</span>
+              <span className="sc-info-value">
+                {session.startTime} – {session.endTime} น.
+              </span>
             </div>
-          </div>
-
-          <div className="modal-actions">
-            <button className="btn-secondary" onClick={onClose}>ปิด</button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn-edit" onClick={() => onEdit(subject, session)}>แก้ไข</button>
-              <button className="btn-danger" onClick={() => { onDelete(subject.id, session.id); onClose(); }}>ลบคาบนี้</button>
+            <div className="sc-info-row">
+              <span className="sc-info-label">ความยาว</span>
+              <span className="sc-info-value">{formatHours(length)} ชั่วโมง</span>
             </div>
           </div>
         </div>
-      </div>
 
-      <style jsx>{`
-        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 15, 35, 0.75); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-        .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; width: 100%; max-width: 380px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.4); animation: slideUp 0.25s ease; }
-        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .modal-color-bar { height: 6px; }
-        .modal-body { padding: 28px 28px 24px; }
-        .subject-badge { 
-          display: inline-block; padding: 4px 12px; border-radius: 20px; 
-          font-size: 0.8rem; font-weight: 700; margin-bottom: 12px; 
-          max-width: 100%; /* ไม่ให้ป้ายกว้างเกิน Modal */
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* ตัดข้อความด้วย ... */
-        }
-        
-        h2 { 
-          font-size: 1.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 20px; 
-          /* ยอมให้ข้อความยาวๆ ขึ้นบรรทัดใหม่ และถ้าเป็นคำติดกันยาวๆ ให้ตัดคำได้เลย */
-          word-wrap: break-word; 
-          overflow-wrap: break-word; 
-          hyphens: auto; 
-        }
-        .info-grid { display: flex; flex-direction: column; gap: 12px; }
-        .info-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface-alt); border-radius: 10px; }
-        .info-label { font-size: 0.82rem; color: var(--text-muted); min-width: 70px; }
-        .info-value { font-size: 0.92rem; font-weight: 600; color: var(--text-primary); }
-        .modal-actions { display: flex; gap: 10px; justify-content: space-between; margin-top: 24px; width: 100%; }
-        .btn-secondary, .btn-danger, .btn-edit { padding: 10px 18px; border-radius: 10px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border: none; transition: 0.2s; }
-        .btn-secondary { background: var(--surface-alt); color: var(--text-secondary); }
-        .btn-edit { background: var(--accent-subtle); color: var(--accent); }
-        .btn-edit:hover { background: var(--accent); color: #fff; }
-        .btn-danger { background: #ff475715; color: #ff4757; }
-        .btn-danger:hover { background: #ff4757; color: #fff; }
-      `}</style>
+        <div className="sc-modal-foot split">
+          <button type="button" className="sc-btn danger" onClick={() => onDelete(subject.id, session.id)}>
+            ลบคาบนี้
+          </button>
+          <button type="button" className="sc-btn primary" onClick={() => onEdit(subject, session)}>
+            แก้ไข
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
