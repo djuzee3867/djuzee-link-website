@@ -225,6 +225,92 @@
 .wrap-toggle input { accent-color: var(--accent); width: 14px; height: 14px; }
 .font-range { width: 74px; accent-color: var(--accent); height: 3px; cursor: pointer; }
 
+/* ---------------- data files ---------------- */
+.file-btn {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--pane-2);
+  color: var(--ink-2);
+  font-family: var(--ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.file-btn svg { width: 13px; height: 13px; }
+.file-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+
+.file-chips {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--pane-2);
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 3px 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--card-line);
+  background: var(--card-bg);
+}
+.file-chip-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* --ink-3 is the page's usual muted tone, but at this size it lands near
+   3:1; these two step up one token so the text stays readable */
+.file-chip-size { font-size: 10.5px; color: var(--ink-2); }
+.file-chip button {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.file-chip button:hover { background: var(--line); color: var(--ink); }
+.file-chips-note { font-size: 11px; color: var(--ink-2); }
+.file-chips-note.bad { color: var(--red); font-weight: 600; }
+.file-chips-note.warn { color: var(--amber); font-weight: 600; }
+
+/* the pane says what a dropped file is for, rather than only lighting up */
+.drop-veil {
+  position: absolute;
+  inset: 6px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--pane) 88%, var(--accent));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.drop-veil span {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.code-pane.dropping .drop-veil { opacity: 1; }
+
 /* ---------------- main ---------------- */
 .py-main {
   flex: 1;
@@ -252,7 +338,7 @@
   min-height: 0;
   overflow: hidden;
 }
-.code-pane { flex: 1 1 auto; min-height: 140px; }
+.code-pane { flex: 1 1 auto; min-height: 140px; position: relative; }
 /* height comes from the drag handle between the two panes; the editor takes
    whatever is left */
 .out-pane {
@@ -771,6 +857,8 @@
   .example-select { flex: 1; min-width: 0; max-width: none; }
   .font-range,
   .wrap-toggle { display: none; }
+  /* no drag and drop on a phone, so the button is the only way in */
+  .file-btn { flex-shrink: 0; }
 
   .py-main { padding: 8px; }
   .run-row { padding: 8px 10px; }

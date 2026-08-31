@@ -284,6 +284,10 @@ function describe(obj) {
       };
     case "FUNCTION":
       return { kind: "text", label: "function", text: rest[0], mono: true };
+    /* a class out of a library: naming where it came from beats listing the
+       twenty-odd methods pg_encoder would otherwise walk into */
+    case "LIBCLASS":
+      return { kind: "text", label: `class ${rest[0]}`, text: `from ${rest[1]}`, mono: true };
     case "module":
       return { kind: "text", label: "module", text: rest[0], mono: true };
     case "HEAP_PRIMITIVE":

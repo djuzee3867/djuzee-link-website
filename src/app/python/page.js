@@ -12,6 +12,17 @@ const MIN_CODE_WIDTH = 320;
 const DEFAULT_OUT_HEIGHT = 200;
 const MIN_OUT_HEIGHT = 64;
 
+/* Data files live in Pyodide's in-memory filesystem, which is the tab's own
+   memory: nothing is uploaded anywhere, and nothing survives a reload.
+
+   The cap is about keeping the tab alive, not about storage. Pyodide is a
+   32-bit build, so the file in the filesystem and whatever pandas parses out
+   of it share one heap that cannot grow past a couple of gigabytes -- and a
+   CSV costs several times its own size once it is a DataFrame. Past HEAVY the
+   file is still accepted and the strip says what it is getting into. */
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const HEAVY_FILE_BYTES = 24 * 1024 * 1024;
+
 // typing an opener inserts the pair; typing the closer steps over it
 /* python modules exec'd into Pyodide, in dependency order */
 const PY_MODULES = [
@@ -25,7 +36,36 @@ const PY_MODULES = [
 const PKG_IMPORTS = [
   ["numpy", /^\s*(?:import|from)\s+numpy\b/m],
   ["pandas", /^\s*(?:import|from)\s+pandas\b/m],
+  /* .xls, the format before .xlsx -- bundled with Pyodide, unlike openpyxl.
+     The quote in the pattern is what keeps .xlsx out of it. */
+  ["xlrd", /\.xls['"]|\bxlrd\b/],
 ];
+
+/* Pyodide does not ship openpyxl, so pandas cannot open an .xlsx without it.
+   It is a 250 KB pure-python wheel, fetched from PyPI the first time the code
+   asks to read a spreadsheet -- the one network call this page makes on the
+   reader's behalf, and never for code that does not mention it. */
+const MICROPIP_IMPORTS = [
+  ["openpyxl", /read_excel|\bopenpyxl\b/],
+];
+
+function listWords(names) {
+  if (names.length < 3) return names.join(" and ");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* browsers hand over a bare basename already, but a crafted drop should not be
+   able to write outside the working directory */
+function safeName(name) {
+  const base = String(name).split("/").pop().split("\\").pop();
+  return base.trim() || "data";
+}
 
 const PAIRS = { "(": ")", "[": "]", "{": "}", '"': '"', "'": "'" };
 const CLOSERS = new Set([")", "]", "}", '"', "'"]);
@@ -76,9 +116,14 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
       setLineHeights((prev) => (prev.length ? [] : prev));
       return;
     }
-    const next = Array.from(layer.children, (el) => el.offsetHeight);
+    /* getBoundingClientRect, not offsetHeight: a wrapped line is 22.4px, not
+       22, and rounding each one drifted the gutter a pixel further from the
+       code with every line down the file */
+    const next = Array.from(layer.children, (el) => el.getBoundingClientRect().height);
     setLineHeights((prev) =>
-      prev.length === next.length && prev.every((h, i) => h === next[i]) ? prev : next
+      prev.length === next.length && prev.every((h, i) => Math.abs(h - next[i]) < 0.01)
+        ? prev
+        : next
     );
   }, [editorWrap]);
 
@@ -316,8 +361,15 @@ export default function PythonVisualizerPage() {
   const [draggingRow, setDraggingRow] = useState(false);
   const [editorWrap, setEditorWrap] = useState(false);
   const [editorFont, setEditorFont] = useState(14);
+  const [files, setFiles] = useState([]);
+  const [fileNote, setFileNote] = useState("");
+  const [dropping, setDropping] = useState(false);
 
   const rawInputsRef = useRef([]);
+  /* bytes waiting to be written into Pyodide's filesystem; a file can be
+     dropped before the runtime has finished loading */
+  const pendingFilesRef = useRef(new Map());
+  const filePickerRef = useRef(null);
   const prefsLoadedRef = useRef(false);
   const traceRef = useRef([]);
   const codeRef = useRef(code);
@@ -431,21 +483,129 @@ viz_explain.install(pg_logger)
     sources.forEach(([name]) => pyodide.globals.delete(`___src_${name}___`));
   }
 
-  async function ensureRuntime(source) {
-    const missing = PKG_IMPORTS
-      .filter(([name, re]) => re.test(source) && !loadedPkgsRef.current.has(name))
-      .map(([name]) => name);
+  /* ---------- data files ---------- */
 
-    if (missing.length) {
-      setLoadingPkg(missing.join(" and "));
+  /* Writes whatever is queued into Pyodide's filesystem. Called on every add
+     and again before a run, because a file can arrive while the runtime is
+     still downloading. */
+  const flushFiles = useCallback(() => {
+    if (!pyodide || !pendingFilesRef.current.size) return;
+    pendingFilesRef.current.forEach((bytes, name) => {
       try {
-        await pyodide.loadPackage(missing);
-        missing.forEach((name) => loadedPkgsRef.current.add(name));
+        pyodide.FS.writeFile(name, bytes);
+        pendingFilesRef.current.delete(name);
+      } catch {
+        /* a name the filesystem will not take. Left queued rather than dropped,
+           so the next run tries again instead of the chip quietly lying */
+      }
+    });
+  }, [pyodide]);
+
+  useEffect(() => { flushFiles(); }, [flushFiles]);
+
+  /* A file dropped anywhere but the code pane would otherwise be opened by the
+     browser, which navigates away from the session. The pane's own handler runs
+     first, so this only swallows the misses. */
+  useEffect(() => {
+    const swallow = (e) => {
+      if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
+      e.preventDefault();
+      /* the pane clears this on its own dragleave, but a drag that ends
+         somewhere else would otherwise leave the veil up */
+      if (e.type === "drop") setDropping(false);
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
+
+  const addFiles = useCallback(async (incoming) => {
+    const list = Array.from(incoming || []);
+    if (!list.length) return;
+
+    const added = [];
+    const tooBig = [];
+    for (const file of list) {
+      if (file.size > MAX_FILE_BYTES) {
+        tooBig.push(file.name);
+        continue;
+      }
+      const name = safeName(file.name);
+      pendingFilesRef.current.set(name, new Uint8Array(await file.arrayBuffer()));
+      added.push({ name, size: file.size });
+    }
+
+    if (added.length) {
+      setFiles((prev) => [
+        ...prev.filter((f) => !added.some((a) => a.name === f.name)),
+        ...added,
+      ]);
+      flushFiles();
+    }
+    setFileNote(
+      tooBig.length
+        ? `${tooBig.join(", ")} ${tooBig.length > 1 ? "are" : "is"} over ${formatBytes(MAX_FILE_BYTES)}`
+        : ""
+    );
+  }, [flushFiles]);
+
+  /* The built-in sample that ships with an example, fetched only when that
+     example is picked. */
+  const addBundledFile = useCallback(async (name) => {
+    if (files.some((f) => f.name === name)) return;
+    try {
+      const res = await fetch(`/pyviz/${name}`);
+      if (!res.ok) return;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      pendingFilesRef.current.set(name, bytes);
+      setFiles((prev) => [
+        ...prev.filter((f) => f.name !== name),
+        { name, size: bytes.length },
+      ]);
+      flushFiles();
+    } catch {
+      /* offline; the run will report the missing file itself */
+    }
+  }, [files, flushFiles]);
+
+  /* big enough that pandas may take a while, or run the 32-bit heap out */
+  const heavyFiles = files.filter((f) => f.size > HEAVY_FILE_BYTES).map((f) => f.name);
+
+  const removeFile = useCallback((name) => {
+    pendingFilesRef.current.delete(name);
+    setFiles((prev) => prev.filter((f) => f.name !== name));
+    setFileNote("");
+    try {
+      pyodide?.FS.unlink(name);
+    } catch {
+      /* never written, or already gone */
+    }
+  }, [pyodide]);
+
+  async function ensureRuntime(source) {
+    flushFiles();
+    const wanted = ([name, re]) => re.test(source) && !loadedPkgsRef.current.has(name);
+    const missing = PKG_IMPORTS.filter(wanted).map(([name]) => name);
+    const fromPypi = MICROPIP_IMPORTS.filter(wanted).map(([name]) => name);
+
+    if (missing.length || fromPypi.length) {
+      setLoadingPkg(listWords([...missing, ...fromPypi]));
+      try {
+        if (missing.length) await pyodide.loadPackage(missing);
+        if (fromPypi.length) {
+          await pyodide.loadPackage("micropip");
+          const micropip = pyodide.pyimport("micropip");
+          await micropip.install(fromPypi);
+        }
+        [...missing, ...fromPypi].forEach((name) => loadedPkgsRef.current.add(name));
       } finally {
         setLoadingPkg("");
       }
     }
-    if (bootstrappedRef.current && !missing.length) return;
+    if (bootstrappedRef.current && !missing.length && !fromPypi.length) return;
     await bootstrapPython();
     bootstrappedRef.current = true;
   }
@@ -681,7 +841,25 @@ json.dumps({'code': ___code_str___, 'trace': trace})
 
       <main className="py-main">
         <div className="left-col" style={{ "--out-height": `${outHeight}px` }}>
-          <section className="pane code-pane">
+          <section
+            className={`pane code-pane ${dropping ? "dropping" : ""}`}
+            onDragOver={(e) => {
+              /* only for files -- dragging a selection inside the editor
+                 must not put the page into drop mode */
+              if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+              e.preventDefault();
+              setDropping(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) setDropping(false);
+            }}
+            onDrop={(e) => {
+              if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+              e.preventDefault();
+              setDropping(false);
+              addFiles(e.dataTransfer.files);
+            }}
+          >
             <div className="pane-head">
               <span className="pane-title">Code</span>
               <div className="code-tools">
@@ -693,6 +871,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                     if (found) {
                       setCode(found.code);
                       reset();
+                      if (found.dataFile) addBundledFile(found.dataFile);
                     }
                     e.target.value = "";
                   }}
@@ -703,6 +882,28 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                     <option key={ex.id} value={ex.id}>{ex.label}</option>
                   ))}
                 </select>
+
+                <input
+                  ref={filePickerRef}
+                  type="file"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="file-btn"
+                  onClick={() => filePickerRef.current?.click()}
+                  title="Add a data file — or drop one anywhere on this pane"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  data
+                </button>
 
                 <label className="wrap-toggle" title="Wrap long lines">
                   <input type="checkbox" checked={editorWrap} onChange={(e) => setEditorWrap(e.target.checked)} />
@@ -723,6 +924,31 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               </div>
             </div>
 
+            {(files.length > 0 || fileNote) && (
+              <div className="file-chips">
+                {files.map((f) => (
+                  <span className="file-chip" key={f.name}>
+                    <span className="file-chip-name">{f.name}</span>
+                    <span className="file-chip-size">{formatBytes(f.size)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(f.name)}
+                      aria-label={`Remove ${f.name}`}
+                      title={`Remove ${f.name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <span className={`file-chips-note ${fileNote ? "bad" : heavyFiles.length ? "warn" : ""}`}>
+                  {fileNote ||
+                    (heavyFiles.length
+                      ? `${listWords(heavyFiles)} ${heavyFiles.length > 1 ? "are" : "is"} large: slow to parse, and able to run the tab out of memory`
+                      : "read from your browser, never uploaded")}
+                </span>
+              </div>
+            )}
+
             <EditorWithGutter
               code={code}
               setCode={setCode}
@@ -733,6 +959,10 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               prevLine={execLines.prev}
               errorLine={errorLine}
             />
+
+            <div className="drop-veil" aria-hidden="true">
+              <span>Drop a data file — read_csv and open() will find it</span>
+            </div>
 
             <div className="legend">
               <span className="legend-item prev"><i /> line that just executed</span>
@@ -797,7 +1027,6 @@ json.dumps({'code': ___code_str___, 'trace': trace})
           <section className="pane out-pane">
             <div className="pane-head">
               <span className="pane-title">Print output (stdout)</span>
-              <span className="pane-note">up to the current step</span>
             </div>
             <pre className="stdout">{entry && entry.stdout ? entry.stdout : "— no output yet —"}</pre>
           </section>

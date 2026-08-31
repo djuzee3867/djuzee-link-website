@@ -1,6 +1,8 @@
 // Code samples for the visualizer dropdown. Each one is short enough to stay
-// well under Python Tutor's 1000-step trace limit. The last two import numpy or
-// pandas, which are downloaded on demand the first time such a sample is run.
+// well under Python Tutor's 1000-step trace limit. The last three import numpy
+// or pandas, downloaded on demand the first time one of them is run; everything
+// else, the standard library included, is already there. An entry with a
+// dataFile ships that file alongside it and loads it when the sample is picked.
 
 export const EXAMPLES = [
   {
@@ -157,6 +159,26 @@ else:
 `,
   },
   {
+    id: "stdlib",
+    label: "Imports from the standard library",
+    code: `from collections import Counter
+from dataclasses import dataclass
+from functools import reduce
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+letters = Counter("banana")
+corners = [Point(0, 0), Point(3, 4)]
+span = reduce(lambda a, b: a + b, [p.x for p in corners])
+
+print(letters)
+print(corners[1], "span:", span)
+`,
+  },
+  {
     id: "numpy-slice",
     label: "numpy: slicing and views",
     code: `import numpy as np
@@ -184,6 +206,24 @@ best = df[df["score"] > 8]
 df["bonus"] = df["score"] * 2
 
 print(df.groupby("team")["score"].mean())
+`,
+  },
+  {
+    id: "pandas-csv",
+    label: "pandas: read a CSV file",
+    // ships with the page and is written into Pyodide's filesystem when this
+    // example is picked, so the sample runs without anyone dropping a file first
+    dataFile: "sales.csv",
+    code: `import pandas as pd
+
+sales = pd.read_csv("sales.csv")
+sales["revenue"] = sales["units"] * sales["price"]
+
+by_region = sales.groupby("region")["revenue"].sum()
+busy = sales[sales["units"] > 10]
+
+print(by_region)
+print(busy[["region", "product", "units"]])
 `,
   },
 ];
