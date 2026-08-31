@@ -94,9 +94,14 @@ function EditorWithGutter({ code, setCode, editorWrap, editorFont, onRun, curLin
       setLineHeights((prev) => (prev.length ? [] : prev));
       return;
     }
-    const next = Array.from(layer.children, (el) => el.offsetHeight);
+    /* getBoundingClientRect, not offsetHeight: a wrapped line is 22.4px, not
+       22, and rounding each one drifted the gutter a pixel further from the
+       code with every line down the file */
+    const next = Array.from(layer.children, (el) => el.getBoundingClientRect().height);
     setLineHeights((prev) =>
-      prev.length === next.length && prev.every((h, i) => h === next[i]) ? prev : next
+      prev.length === next.length && prev.every((h, i) => Math.abs(h - next[i]) < 0.01)
+        ? prev
+        : next
     );
   }, [editorWrap]);
 
@@ -474,6 +479,22 @@ viz_explain.install(pg_logger)
   }, [pyodide]);
 
   useEffect(() => { flushFiles(); }, [flushFiles]);
+
+  /* A file dropped anywhere but the code pane would otherwise be opened by the
+     browser, which navigates away from the session. The pane's own handler runs
+     first, so this only swallows the misses. */
+  useEffect(() => {
+    const swallow = (e) => {
+      if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
+      e.preventDefault();
+    };
+    window.addEventListener("dragover", swallow);
+    window.addEventListener("drop", swallow);
+    return () => {
+      window.removeEventListener("dragover", swallow);
+      window.removeEventListener("drop", swallow);
+    };
+  }, []);
 
   const addFiles = useCallback(async (incoming) => {
     const list = Array.from(incoming || []);
@@ -969,7 +990,6 @@ json.dumps({'code': ___code_str___, 'trace': trace})
           <section className="pane out-pane">
             <div className="pane-head">
               <span className="pane-title">Print output (stdout)</span>
-              <span className="pane-note">up to the current step</span>
             </div>
             <pre className="stdout">{entry && entry.stdout ? entry.stdout : "— no output yet —"}</pre>
           </section>

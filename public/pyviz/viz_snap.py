@@ -288,11 +288,23 @@ def _container_payload(dat):
         return None      # handled by pg_encoder before it ever gets here
     if getattr(dat, "__dict__", None):
         return None      # a real attribute bag; let pg_encoder show that
+
     if isinstance(dat, dict):
-        return list(dat.items())[:MAX_LIB_ROWS]
-    if isinstance(dat, (list, tuple, set, frozenset)):
-        return list(enumerate(list(dat)[:MAX_LIB_ROWS]))
-    return None
+        rows = list(dat.items())
+    elif isinstance(dat, (list, tuple, set, frozenset)):
+        values = list(dat)
+        fields = getattr(dat, "_fields", None)   # namedtuple keeps its names
+        if fields and len(fields) == len(values):
+            rows = list(zip(fields, values))
+        else:
+            rows = list(enumerate(values))
+    else:
+        return None
+
+    if len(rows) > MAX_LIB_ROWS:
+        # say so, rather than showing the first hundred as if that were all
+        rows = rows[:MAX_LIB_ROWS] + [("…", "%d more" % (len(rows) - MAX_LIB_ROWS))]
+    return rows
 
 
 def _library_repr(dat):
