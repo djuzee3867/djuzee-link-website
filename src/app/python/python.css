@@ -287,6 +287,7 @@
 }
 .file-chip button:hover { background: var(--line); color: var(--ink); }
 .file-chips-note { font-size: 11px; color: var(--ink-2); }
+.file-chips-note.bad { color: var(--red); font-weight: 600; }
 
 /* the pane says what a dropped file is for, rather than only lighting up */
 .drop-veil {

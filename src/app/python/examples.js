@@ -1,7 +1,8 @@
 // Code samples for the visualizer dropdown. Each one is short enough to stay
-// well under Python Tutor's 1000-step trace limit. The last two import numpy or
-// pandas, which are downloaded on demand the first time such a sample is run;
-// everything else, the standard library included, is already there.
+// well under Python Tutor's 1000-step trace limit. The last three import numpy
+// or pandas, downloaded on demand the first time one of them is run; everything
+// else, the standard library included, is already there. An entry with a
+// dataFile ships that file alongside it and loads it when the sample is picked.
 
 export const EXAMPLES = [
   {

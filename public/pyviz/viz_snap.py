@@ -289,16 +289,21 @@ def _container_payload(dat):
     if getattr(dat, "__dict__", None):
         return None      # a real attribute bag; let pg_encoder show that
 
-    if isinstance(dat, dict):
-        rows = list(dat.items())
-    elif isinstance(dat, (list, tuple, set, frozenset)):
-        values = list(dat)
-        fields = getattr(dat, "_fields", None)   # namedtuple keeps its names
-        if fields and len(fields) == len(values):
-            rows = list(zip(fields, values))
+    # a subclass is free to override items() or __iter__ with something that
+    # raises; falling back leaves pg_encoder to draw whatever it can
+    try:
+        if isinstance(dat, dict):
+            rows = list(dat.items())
+        elif isinstance(dat, (list, tuple, set, frozenset)):
+            values = list(dat)
+            fields = getattr(dat, "_fields", None)   # namedtuple keeps its names
+            if fields and len(fields) == len(values):
+                rows = list(zip(fields, values))
+            else:
+                rows = list(enumerate(values))
         else:
-            rows = list(enumerate(values))
-    else:
+            return None
+    except Exception:
         return None
 
     if len(rows) > MAX_LIB_ROWS:

@@ -471,11 +471,12 @@ viz_explain.install(pg_logger)
     pendingFilesRef.current.forEach((bytes, name) => {
       try {
         pyodide.FS.writeFile(name, bytes);
+        pendingFilesRef.current.delete(name);
       } catch {
-        /* a name the filesystem will not take; the chip stays, the run says so */
+        /* a name the filesystem will not take. Left queued rather than dropped,
+           so the next run tries again instead of the chip quietly lying */
       }
     });
-    pendingFilesRef.current.clear();
   }, [pyodide]);
 
   useEffect(() => { flushFiles(); }, [flushFiles]);
@@ -487,6 +488,9 @@ viz_explain.install(pg_logger)
     const swallow = (e) => {
       if (!Array.from(e.dataTransfer?.types || []).includes("Files")) return;
       e.preventDefault();
+      /* the pane clears this on its own dragleave, but a drag that ends
+         somewhere else would otherwise leave the veil up */
+      if (e.type === "drop") setDropping(false);
     };
     window.addEventListener("dragover", swallow);
     window.addEventListener("drop", swallow);
@@ -521,7 +525,7 @@ viz_explain.install(pg_logger)
     }
     setFileNote(
       tooBig.length
-        ? `${tooBig.join(", ")} is over ${formatBytes(MAX_FILE_BYTES)}`
+        ? `${tooBig.join(", ")} ${tooBig.length > 1 ? "are" : "is"} over ${formatBytes(MAX_FILE_BYTES)}`
         : ""
     );
   }, [flushFiles]);
@@ -890,7 +894,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
               </div>
             </div>
 
-            {files.length > 0 && (
+            {(files.length > 0 || fileNote) && (
               <div className="file-chips">
                 {files.map((f) => (
                   <span className="file-chip" key={f.name}>
@@ -906,7 +910,7 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                     </button>
                   </span>
                 ))}
-                <span className="file-chips-note">
+                <span className={`file-chips-note ${fileNote ? "bad" : ""}`}>
                   {fileNote || "read from your browser, never uploaded"}
                 </span>
               </div>
