@@ -207,4 +207,22 @@ df["bonus"] = df["score"] * 2
 print(df.groupby("team")["score"].mean())
 `,
   },
+  {
+    id: "pandas-csv",
+    label: "pandas: read a CSV file",
+    // ships with the page and is written into Pyodide's filesystem when this
+    // example is picked, so the sample runs without anyone dropping a file first
+    dataFile: "sales.csv",
+    code: `import pandas as pd
+
+sales = pd.read_csv("sales.csv")
+sales["revenue"] = sales["units"] * sales["price"]
+
+by_region = sales.groupby("region")["revenue"].sum()
+busy = sales[sales["units"] > 10]
+
+print(by_region)
+print(busy[["region", "product", "units"]])
+`,
+  },
 ];

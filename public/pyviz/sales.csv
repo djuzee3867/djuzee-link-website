@@ -1,0 +1,9 @@
+region,product,units,price
+north,widget,12,4.50
+north,gizmo,5,19.00
+south,widget,8,4.50
+south,gizmo,14,19.00
+south,sprocket,3,7.25
+east,widget,21,4.50
+east,sprocket,9,7.25
+west,gizmo,6,19.00

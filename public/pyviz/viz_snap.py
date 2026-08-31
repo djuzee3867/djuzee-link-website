@@ -10,6 +10,7 @@ Everything here is loaded into Pyodide after pg_logger and patches it from the
 outside; the vendored Python Tutor sources stay untouched.
 """
 
+import os
 import types
 
 try:
@@ -26,6 +27,8 @@ MAX_ROWS = 20        # rows kept (second-to-last axis)
 MAX_COLS = 20        # columns kept (last axis)
 MAX_PLANES = 3       # 2-D slices kept of a 3-D array
 MAX_REPR = 160
+
+_BUILTIN_OPEN = open
 
 # packages the user may import once we have loaded them; sub-modules count too,
 # so `import numpy.linalg` has to be matched on the root name
@@ -316,6 +319,7 @@ def install(pg_encoder, pg_logger):
     """Teach the vendored tracer about numpy and pandas."""
     _patch_encoder(pg_encoder)
     _patch_imports(pg_logger)
+    _patch_open(pg_logger)
     _patch_dispatch(pg_logger)
 
 
@@ -407,6 +411,40 @@ def _patch_imports(pg_logger):
             )
 
     pg_logger.__restricted_import__ = restricted_import
+
+
+def _patch_open(pg_logger):
+    """Hand open() back, so a file dropped on the page can be read.
+
+    Python Tutor banned it outright and pointed at io.StringIO instead, which
+    was the right call when the file being opened would have been on their
+    server. Here the filesystem is a few kilobytes of MEMFS inside the tab,
+    thrown away on reload, holding nothing but what the reader put there.
+
+    pandas never needed this -- read_csv calls open out of its own module, not
+    the builtins the tracer hands the user -- so this is for `open(...)` and the
+    csv module written by hand.
+    """
+    def open_wrapper(*args, **kwargs):
+        try:
+            return _BUILTIN_OPEN(*args, **kwargs)
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                "there is no file called %r here. Drop one on the page, "
+                "or use the + button above the editor. Loaded now: %s"
+                % (args[0] if args else "?", _loaded_files())
+            ) from None
+
+    pg_logger.open_wrapper = open_wrapper
+
+
+def _loaded_files():
+    """What the reader can actually open, for the message above."""
+    try:
+        names = sorted(n for n in os.listdir(".") if os.path.isfile(n))
+    except OSError:
+        names = []
+    return ", ".join(names) if names else "nothing"
 
 
 def _patch_dispatch(pg_logger):
