@@ -1,6 +1,7 @@
 // Code samples for the visualizer dropdown. Each one is short enough to stay
 // well under Python Tutor's 1000-step trace limit. The last two import numpy or
-// pandas, which are downloaded on demand the first time such a sample is run.
+// pandas, which are downloaded on demand the first time such a sample is run;
+// everything else, the standard library included, is already there.
 
 export const EXAMPLES = [
   {
@@ -154,6 +155,26 @@ if left > 0:
     print("You turn 18 in", left, "years")
 else:
     print("You are already 18 or older")
+`,
+  },
+  {
+    id: "stdlib",
+    label: "Imports from the standard library",
+    code: `from collections import Counter
+from dataclasses import dataclass
+from functools import reduce
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+letters = Counter("banana")
+corners = [Point(0, 0), Point(3, 4)]
+span = reduce(lambda a, b: a + b, [p.x for p in corners])
+
+print(letters)
+print(corners[1], "span:", span)
 `,
   },
   {

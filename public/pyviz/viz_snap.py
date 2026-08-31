@@ -29,7 +29,50 @@ MAX_REPR = 160
 
 # packages the user may import once we have loaded them; sub-modules count too,
 # so `import numpy.linalg` has to be matched on the root name
-EXTRA_IMPORT_ROOTS = ("numpy", "pandas", "dateutil", "pytz", "six")
+EXTRA_IMPORT_ROOTS = ("numpy", "pandas")
+
+# pandas' own dependencies. Allowed so that reaching for one by hand is not a
+# dead end, but left out of the list an ImportError offers -- nobody sets out to
+# "import six".
+QUIET_IMPORT_ROOTS = ("dateutil", "pytz", "six")
+
+# The stdlib the sandbox hands over. pg_logger shipped with fifteen names on it,
+# which left `from dataclasses import dataclass` and `import typing` raising
+# ImportError for no reason we share: this runs in the browser, so there is no
+# server to protect. What stays out is what would break the visualization rather
+# than teach anything -- sys.settrace would unhook the tracer mid-run, threading
+# and inspect walk frames the tracer owns, and os/socket/subprocess cannot do
+# anything in Pyodide except fail in confusing ways.
+STDLIB_IMPORT_ROOTS = (
+    "abc", "array", "base64", "binascii", "bisect", "calendar", "cmath",
+    "codecs", "collections", "colorsys", "contextlib", "copy", "csv",
+    "dataclasses", "datetime", "decimal", "difflib", "enum", "fnmatch",
+    "fractions", "functools", "graphlib", "hashlib", "heapq", "html", "io",
+    "itertools", "json", "keyword", "math", "numbers", "operator", "pprint",
+    "random", "re", "reprlib", "statistics", "string", "struct", "textwrap",
+    "time", "types", "typing", "unicodedata", "uuid", "zlib",
+)
+
+MAX_LIB_ROWS = 100   # rows kept when unpacking a library container
+
+# Bookkeeping the interpreter and the decorators write onto a class. pg_encoder
+# hides the first seven already; @dataclass and ABC add the rest, and each one
+# drags its own card onto the heap -- Field objects, _MISSING_TYPE, _abc_data
+# and a `class int` that came from nothing but the x: int annotation.
+HIDDEN_CLASS_ATTRS = frozenset((
+    "__doc__", "__module__", "__return__", "__dict__", "__locals__",
+    "__weakref__", "__qualname__",
+    "__annotations__", "__dataclass_fields__", "__dataclass_params__",
+    "__match_args__", "__slots__", "__orig_bases__", "__parameters__",
+    "__abstractmethods__", "_abc_impl", "__firstlineno__",
+    "__static_attributes__", "__type_params__",
+    # EnumType writes these onto the class the user wrote, and each one is
+    # another card: the name list, both member maps, a bare `class object`
+    "_generate_next_value_", "_member_map_", "_member_names_",
+    "_member_type_", "_new_member_", "_unhashable_values_", "_use_args_",
+    "_value2member_map_", "_value_repr_", "_sort_order_", "_numeric_repr_",
+    "_add_alias_", "_add_value_alias_",
+))
 
 
 # --------------------------------------------------------------- single cells
@@ -209,6 +252,64 @@ def _foreign(value):
             "repr": _short_repr(value)}
 
 
+def _library_class(dat):
+    """A class the user did not write, as one line instead of two dozen cards.
+
+    pg_encoder walks a class attribute by attribute, so `from collections import
+    Counter` alone put the class plus every one of its twenty-odd methods on the
+    heap, and none of it is what the reader is looking at.
+    """
+    if not isinstance(dat, type):
+        return None
+    module = getattr(dat, "__module__", "") or ""
+    if module in ("__main__", ""):
+        return None
+    return ["LIBCLASS", getattr(dat, "__name__", None) or str(dat), module]
+
+
+def _defers_to_str(dat):
+    """pg_encoder draws anything with a real __str__ as one pprint card already."""
+    return type(dat).__str__ is not object.__str__
+
+
+def _container_payload(dat):
+    """Rows for a subclass of a builtin container.
+
+    Counter, defaultdict and OrderedDict keep what they hold in the base type
+    rather than in __dict__, so pg_encoder finds nothing to show and the card
+    reads "Counter instance -- empty" however full it is.
+    """
+    if isinstance(dat, type) or _defers_to_str(dat):
+        return None
+    if type(dat) in (dict, list, tuple, set, frozenset):
+        return None      # handled by pg_encoder before it ever gets here
+    if getattr(dat, "__dict__", None):
+        return None      # a real attribute bag; let pg_encoder show that
+    if isinstance(dat, dict):
+        return list(dat.items())[:MAX_LIB_ROWS]
+    if isinstance(dat, (list, tuple, set, frozenset)):
+        return list(enumerate(list(dat)[:MAX_LIB_ROWS]))
+    return None
+
+
+def _library_repr(dat):
+    """Last resort for a library object with nothing structured left to unpack.
+
+    A deque holds nothing in __dict__ and is not a list subclass either, so it
+    would come out empty; repr() at least says what is in it.
+    """
+    if isinstance(dat, type) or _defers_to_str(dat):
+        return None
+    module = getattr(type(dat), "__module__", "") or ""
+    if module.split(".")[0] in ("__main__", ""):
+        return None      # the user's own class, empty is the honest answer
+    if getattr(dat, "__dict__", None):
+        return None
+    if type(dat).__repr__ is object.__repr__:
+        return None
+    return _short_repr(dat)
+
+
 # ------------------------------------------------------------------- patching
 
 def install(pg_encoder, pg_logger):
@@ -247,6 +348,31 @@ def _patch_encoder(pg_encoder):
         if grid is not None:
             new_obj.extend(["VIZ", grid])
             return
+        library = _library_class(dat)
+        if library is not None:
+            new_obj.extend(library)
+            return
+        rows = _container_payload(dat)
+        if rows is not None:
+            new_obj.extend(["INSTANCE", type(dat).__name__])
+            for key, value in rows:
+                new_obj.append([self.encode(key, None), self.encode(value, None)])
+            return
+        text = _library_repr(dat)
+        if text is not None:
+            new_obj.extend(["INSTANCE_PPRINT", type(dat).__name__, text])
+            return
+        # the user's own class: same shape pg_encoder produces, but the walk
+        # has to skip the machinery rather than encode it and hide the row,
+        # or every Field object is on the heap with nothing pointing at it
+        if isinstance(dat, type):
+            bases = [e.__name__ for e in dat.__bases__ if e is not object]
+            new_obj.extend(["CLASS", pg_encoder.get_name(dat), bases])
+            for attr in sorted(e for e in dat.__dict__
+                               if e not in HIDDEN_CLASS_ATTRS):
+                new_obj.append([self.encode(attr, None),
+                                self.encode(dat.__dict__[attr], None)])
+            return
         return original_instance(self, dat, new_obj)
 
     pg_encoder.ObjectEncoder.encode = encode
@@ -254,21 +380,31 @@ def _patch_encoder(pg_encoder):
 
 
 def _patch_imports(pg_logger):
-    """Widen the import whitelist to the packages we have actually loaded.
+    """Widen the import whitelist.
 
     __restricted_import__ matches args[0] exactly, so `import numpy.linalg`
-    (args[0] == "numpy.linalg") would be refused; match the root instead. The
-    original also strips os/sys/posix/gc off whatever it imports, which is not
-    something to do to numpy.
+    (args[0] == "numpy.linalg") would be refused; match the root instead. It
+    also strips os/sys/posix/gc off whatever it imports, and that is a lasting
+    edit to the real module object -- deleting `sys` off `calendar` breaks
+    calendar for the rest of the session -- so anything we vouch for goes
+    straight to the builtin import.
     """
+    offered = EXTRA_IMPORT_ROOTS + STDLIB_IMPORT_ROOTS
+    allowed = frozenset(offered + QUIET_IMPORT_ROOTS)
     original = pg_logger.__restricted_import__
 
     def restricted_import(*args):
         names = [e for e in args if type(e) is str]
-        root = names[0].split(".")[0] if names else ""
-        if root in EXTRA_IMPORT_ROOTS:
+        name = names[0] if names else ""
+        if name.split(".")[0] in allowed:
             return pg_logger.BUILTIN_IMPORT(*args)
-        return original(*args)
+        try:
+            return original(*args)
+        except ImportError:
+            raise ImportError(
+                "%s is not available here -- this runs inside your browser. "
+                "You can import: %s" % (name, ", ".join(sorted(offered)))
+            )
 
     pg_logger.__restricted_import__ = restricted_import
 
