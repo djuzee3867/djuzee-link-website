@@ -13,10 +13,15 @@ const DEFAULT_OUT_HEIGHT = 200;
 const MIN_OUT_HEIGHT = 64;
 
 /* Data files live in Pyodide's in-memory filesystem, which is the tab's own
-   memory: nothing is uploaded anywhere, and nothing survives a reload. The cap
-   is about keeping the tab responsive, not about storage -- a spreadsheet with
-   real data in it clears four megabytes easily, so there is room for one. */
-const MAX_FILE_BYTES = 16 * 1024 * 1024;
+   memory: nothing is uploaded anywhere, and nothing survives a reload.
+
+   The cap is about keeping the tab alive, not about storage. Pyodide is a
+   32-bit build, so the file in the filesystem and whatever pandas parses out
+   of it share one heap that cannot grow past a couple of gigabytes -- and a
+   CSV costs several times its own size once it is a DataFrame. Past HEAVY the
+   file is still accepted and the strip says what it is getting into. */
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
+const HEAVY_FILE_BYTES = 24 * 1024 * 1024;
 
 // typing an opener inserts the pair; typing the closer steps over it
 /* python modules exec'd into Pyodide, in dependency order */
@@ -566,6 +571,9 @@ viz_explain.install(pg_logger)
     }
   }, [files, flushFiles]);
 
+  /* big enough that pandas may take a while, or run the 32-bit heap out */
+  const heavyFiles = files.filter((f) => f.size > HEAVY_FILE_BYTES).map((f) => f.name);
+
   const removeFile = useCallback((name) => {
     pendingFilesRef.current.delete(name);
     setFiles((prev) => prev.filter((f) => f.name !== name));
@@ -932,8 +940,11 @@ json.dumps({'code': ___code_str___, 'trace': trace})
                     </button>
                   </span>
                 ))}
-                <span className={`file-chips-note ${fileNote ? "bad" : ""}`}>
-                  {fileNote || "read from your browser, never uploaded"}
+                <span className={`file-chips-note ${fileNote ? "bad" : heavyFiles.length ? "warn" : ""}`}>
+                  {fileNote ||
+                    (heavyFiles.length
+                      ? `${listWords(heavyFiles)} ${heavyFiles.length > 1 ? "are" : "is"} large: slow to parse, and able to run the tab out of memory`
+                      : "read from your browser, never uploaded")}
                 </span>
               </div>
             )}
