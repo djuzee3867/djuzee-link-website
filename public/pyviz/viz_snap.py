@@ -32,7 +32,7 @@ _BUILTIN_OPEN = open
 
 # packages the user may import once we have loaded them; sub-modules count too,
 # so `import numpy.linalg` has to be matched on the root name
-EXTRA_IMPORT_ROOTS = ("numpy", "pandas")
+EXTRA_IMPORT_ROOTS = ("numpy", "pandas", "openpyxl", "xlrd")
 
 # pandas' own dependencies. Allowed so that reaching for one by hand is not a
 # dead end, but left out of the list an ImportError offers -- nobody sets out to

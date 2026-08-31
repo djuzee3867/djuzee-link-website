@@ -14,8 +14,9 @@ const MIN_OUT_HEIGHT = 64;
 
 /* Data files live in Pyodide's in-memory filesystem, which is the tab's own
    memory: nothing is uploaded anywhere, and nothing survives a reload. The cap
-   is about keeping the tab responsive, not about storage. */
-const MAX_FILE_BYTES = 4 * 1024 * 1024;
+   is about keeping the tab responsive, not about storage -- a spreadsheet with
+   real data in it clears four megabytes easily, so there is room for one. */
+const MAX_FILE_BYTES = 16 * 1024 * 1024;
 
 // typing an opener inserts the pair; typing the closer steps over it
 /* python modules exec'd into Pyodide, in dependency order */
@@ -30,7 +31,23 @@ const PY_MODULES = [
 const PKG_IMPORTS = [
   ["numpy", /^\s*(?:import|from)\s+numpy\b/m],
   ["pandas", /^\s*(?:import|from)\s+pandas\b/m],
+  /* .xls, the format before .xlsx -- bundled with Pyodide, unlike openpyxl.
+     The quote in the pattern is what keeps .xlsx out of it. */
+  ["xlrd", /\.xls['"]|\bxlrd\b/],
 ];
+
+/* Pyodide does not ship openpyxl, so pandas cannot open an .xlsx without it.
+   It is a 250 KB pure-python wheel, fetched from PyPI the first time the code
+   asks to read a spreadsheet -- the one network call this page makes on the
+   reader's behalf, and never for code that does not mention it. */
+const MICROPIP_IMPORTS = [
+  ["openpyxl", /read_excel|\bopenpyxl\b/],
+];
+
+function listWords(names) {
+  if (names.length < 3) return names.join(" and ");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 function formatBytes(n) {
   if (n < 1024) return `${n} B`;
@@ -562,20 +579,25 @@ viz_explain.install(pg_logger)
 
   async function ensureRuntime(source) {
     flushFiles();
-    const missing = PKG_IMPORTS
-      .filter(([name, re]) => re.test(source) && !loadedPkgsRef.current.has(name))
-      .map(([name]) => name);
+    const wanted = ([name, re]) => re.test(source) && !loadedPkgsRef.current.has(name);
+    const missing = PKG_IMPORTS.filter(wanted).map(([name]) => name);
+    const fromPypi = MICROPIP_IMPORTS.filter(wanted).map(([name]) => name);
 
-    if (missing.length) {
-      setLoadingPkg(missing.join(" and "));
+    if (missing.length || fromPypi.length) {
+      setLoadingPkg(listWords([...missing, ...fromPypi]));
       try {
-        await pyodide.loadPackage(missing);
-        missing.forEach((name) => loadedPkgsRef.current.add(name));
+        if (missing.length) await pyodide.loadPackage(missing);
+        if (fromPypi.length) {
+          await pyodide.loadPackage("micropip");
+          const micropip = pyodide.pyimport("micropip");
+          await micropip.install(fromPypi);
+        }
+        [...missing, ...fromPypi].forEach((name) => loadedPkgsRef.current.add(name));
       } finally {
         setLoadingPkg("");
       }
     }
-    if (bootstrappedRef.current && !missing.length) return;
+    if (bootstrappedRef.current && !missing.length && !fromPypi.length) return;
     await bootstrapPython();
     bootstrappedRef.current = true;
   }
