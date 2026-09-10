@@ -334,6 +334,12 @@ def _library_repr(dat):
 
 def install(pg_encoder, pg_logger):
     """Teach the vendored tracer about numpy and pandas."""
+    # pg_logger ships with DEBUG on, and all it gates is a traceback.print_exc()
+    # for every exception that ends a run -- including RawInputException, which
+    # is how input() pauses the trace on purpose. Pyodide sends stderr to
+    # console.warn, so each input() looked like a crash. The error still reaches
+    # the page through the trace; only the console copy goes.
+    pg_logger.DEBUG = False
     _patch_encoder(pg_encoder)
     _patch_imports(pg_logger)
     _patch_open(pg_logger)
