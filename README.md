@@ -1,1 +1,1 @@
-https://djuzee-link-website.vercel.app/
+https://project.djuzee.site/
